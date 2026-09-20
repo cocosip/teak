@@ -2,6 +2,7 @@ package teak
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -77,7 +78,12 @@ func (l *logStream) Read(ctx context.Context, count int) ([]Delivery, error) {
 	defer l.end()
 	internal, err := l.dispatcher.Read(ctx, count)
 	if err != nil {
-		return nil, mapError(err)
+		mapped := mapError(err)
+		if !errors.Is(mapped, context.Canceled) && !errors.Is(mapped, context.DeadlineExceeded) &&
+			!errors.Is(mapped, ErrClosed) && !errors.Is(mapped, ErrInvalidCount) {
+			mapped = l.storageError("read", 0, mapped)
+		}
+		return nil, mapped
 	}
 	deliveries := make([]Delivery, len(internal))
 	for index, delivery := range internal {

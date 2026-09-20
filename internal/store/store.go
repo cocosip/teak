@@ -36,6 +36,10 @@ var (
 	ErrUnsupportedSchema = errors.New("store: unsupported schema version")
 	// ErrNoRewrite reports that value-log GC found no eligible file.
 	ErrNoRewrite = errors.New("store: no value log rewrite needed")
+	// ErrTailRegression reports metadata that could cause a stored sequence to be reused.
+	ErrTailRegression = errors.New("store: durable tail is behind stored records")
+	// ErrStateConflict reports mutually exclusive queue states for one sequence.
+	ErrStateConflict = errors.New("store: conflicting record state")
 )
 
 // Record is a copied pending record returned by ScanBatch.
@@ -168,23 +172,51 @@ func (s *Stream) load() error {
 		}
 
 		item, err = txn.Get(metaKey(s.name, tailMetaKey))
+		tailFound := true
 		if errors.Is(err, badger.ErrKeyNotFound) {
 			s.tail = 0
-			return nil
+			tailFound = false
+		} else {
+			if err != nil {
+				return err
+			}
+			value, err := item.ValueCopy(nil)
+			if err != nil {
+				return err
+			}
+			if len(value) != seqLen {
+				return fmt.Errorf("store: corrupt tail for stream %q", s.name)
+			}
+			s.tail = binary.BigEndian.Uint64(value)
 		}
-		if err != nil {
-			return err
+		for _, prefix := range [][]byte{pendingPrefix(s.name), deadPrefix(s.name)} {
+			maximum, found, err := maxStoredSequence(txn, prefix)
+			if err != nil {
+				return err
+			}
+			if found && (!tailFound || maximum > s.tail) {
+				return fmt.Errorf("%w for stream %q: stored=%d tail=%d", ErrTailRegression, s.name, maximum, s.tail)
+			}
 		}
-		value, err := item.ValueCopy(nil)
-		if err != nil {
-			return err
-		}
-		if len(value) != seqLen {
-			return fmt.Errorf("store: corrupt tail for stream %q", s.name)
-		}
-		s.tail = binary.BigEndian.Uint64(value)
 		return nil
 	})
+}
+
+func maxStoredSequence(txn *badger.Txn, prefix []byte) (uint64, bool, error) {
+	options := badger.DefaultIteratorOptions
+	options.PrefetchValues = false
+	options.Reverse = true
+	iterator := txn.NewIterator(options)
+	defer iterator.Close()
+	iterator.Seek(sequenceKey(prefix, math.MaxUint64))
+	if !iterator.ValidForPrefix(prefix) {
+		return 0, false, nil
+	}
+	seq, ok := parseSequence(prefix, iterator.Item().Key())
+	if !ok {
+		return 0, false, ErrCorruptEnvelope
+	}
+	return seq, true, nil
 }
 
 // Append atomically stores one record and advances the durable tail.
@@ -316,6 +348,11 @@ func (s *Stream) DeadLetter(seq uint64, reason string, now time.Time) error {
 			return fmt.Errorf("%w: %s/%d", ErrNotFound, s.name, seq)
 		}
 		if err != nil {
+			return err
+		}
+		if _, err := txn.Get(deadKey(s.name, seq)); err == nil {
+			return fmt.Errorf("%w: %s/%d exists as pending and dead letter", ErrStateConflict, s.name, seq)
+		} else if !errors.Is(err, badger.ErrKeyNotFound) {
 			return err
 		}
 		value, err := item.ValueCopy(nil)

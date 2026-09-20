@@ -266,7 +266,8 @@ func TestCommitBatchIsAtomicOnMissingRecord(t *testing.T) {
 }
 
 func TestDeadLetterAndRequeueAreAtomic(t *testing.T) {
-	_, stream := openTestStream(t, "jobs")
+	const streamName = "jobs"
+	_, stream := openTestStream(t, streamName)
 	now := time.Unix(100, 0).UTC()
 	if _, err := stream.Append([]byte("payload"), now); err != nil {
 		t.Fatal(err)
@@ -291,14 +292,14 @@ func TestDeadLetterAndRequeueAreAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	dead, err := stream.DeadLetters(1, 10)
-	if err != nil || len(dead) != 1 || dead[0].OriginStream != "jobs" || dead[0].OriginSeq != 1 || dead[0].Reason != "bad" {
+	if err != nil || len(dead) != 1 || dead[0].OriginStream != streamName || dead[0].OriginSeq != 1 || dead[0].Reason != "bad" {
 		t.Fatalf("dead letter: %+v, %v", dead, err)
 	}
 	requeued, err := stream.Requeue(1, now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requeued.Seq != 2 || requeued.OriginStream != "jobs" || requeued.OriginSeq != 1 {
+	if requeued.Seq != 2 || requeued.OriginStream != streamName || requeued.OriginSeq != 1 {
 		t.Fatalf("requeued record = %+v", requeued)
 	}
 	if dead, _ = stream.DeadLetters(1, 10); len(dead) != 0 {
@@ -348,6 +349,55 @@ func TestUnsupportedSchemaFailsOpen(t *testing.T) {
 	root.mu.Unlock()
 	if _, err := root.Stream("jobs"); !errors.Is(err, ErrUnsupportedSchema) {
 		t.Fatalf("unsupported schema error = %v", err)
+	}
+}
+
+func TestTailRegressionFailsOpen(t *testing.T) {
+	root, stream := openTestStream(t, "jobs")
+	if _, err := stream.AppendBatch([][]byte{[]byte("one"), []byte("two")}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.db.Update(func(txn *badger.Txn) error {
+		return txn.Set(metaKey(stream.name, tailMetaKey), binary.BigEndian.AppendUint64(nil, 1))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	root.mu.Lock()
+	delete(root.streams, "jobs")
+	root.mu.Unlock()
+	if _, err := root.Stream("jobs"); !errors.Is(err, ErrTailRegression) {
+		t.Fatalf("tail regression error = %v", err)
+	}
+}
+
+func TestDeadLetterRefusesConflictingState(t *testing.T) {
+	_, stream := openTestStream(t, "jobs")
+	now := time.Unix(100, 0).UTC()
+	if _, err := stream.Append([]byte("pending"), now); err != nil {
+		t.Fatal(err)
+	}
+	dead, err := encodeDead(deadEnvelope{
+		CreatedAt: now, DeadLetteredAt: now, OriginStream: "jobs", OriginSeq: 1,
+		Payload: []byte("existing"), Reason: "existing",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.db.Update(func(txn *badger.Txn) error {
+		return txn.Set(deadKey(stream.name, 1), dead)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.DeadLetter(1, "replacement", now); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("dead-letter conflict = %v", err)
+	}
+	pending, err := stream.ScanBatch(1, 10)
+	if err != nil || len(pending) != 1 || string(pending[0].Payload) != "pending" {
+		t.Fatalf("pending changed after conflict: %+v, %v", pending, err)
+	}
+	deadLetters, err := stream.DeadLetters(1, 10)
+	if err != nil || len(deadLetters) != 1 || string(deadLetters[0].Payload) != "existing" {
+		t.Fatalf("dead letter changed after conflict: %+v, %v", deadLetters, err)
 	}
 }
 

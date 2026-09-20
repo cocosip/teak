@@ -28,6 +28,8 @@ var (
 	ErrNotFound = errors.New("teak: record not found")
 	// ErrBatchTooLarge reports a write batch beyond the atomic transaction limit.
 	ErrBatchTooLarge = errors.New("teak: batch too large")
+	// ErrCorruptStorage reports inconsistent metadata or an unreadable persisted envelope.
+	ErrCorruptStorage = errors.New("teak: corrupt storage")
 )
 
 // Position identifies one sequence in a named log.

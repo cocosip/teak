@@ -81,6 +81,9 @@ func (f *factory) Open(ctx context.Context, name string) (Log, error) {
 	}
 	persistence, err := f.root.Stream(name)
 	if err != nil {
+		if f.options.Logger != nil {
+			f.options.Logger.Error("teak storage operation failed", "operation", "open-log", "stream", name, "error", err)
+		}
 		return nil, mapError(err)
 	}
 	config := f.options.DefaultLog
@@ -249,6 +252,10 @@ func mapError(err error) error {
 		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	case errors.Is(err, store.ErrBatchTooLarge):
 		return fmt.Errorf("%w: %v", ErrBatchTooLarge, err)
+	case errors.Is(err, store.ErrCorruptEnvelope), errors.Is(err, store.ErrUnsupportedEnvelope),
+		errors.Is(err, store.ErrUnsupportedSchema), errors.Is(err, store.ErrTailRegression),
+		errors.Is(err, store.ErrStateConflict):
+		return fmt.Errorf("%w: %w", ErrCorruptStorage, err)
 	default:
 		return err
 	}
