@@ -19,7 +19,7 @@ The `internal/store` tests cover:
 - failure-injected dead-letter transfer and origin-preserving requeue;
 - persistent counts and oldest-pending metadata.
 
-Killed-process recovery and public delivery behavior are added in later milestones.
+Killed-process recovery and public delivery behavior are covered by the later test layers below.
 
 The `internal/dispatch` tests use `testing/synctest` and a fake persistent source to cover receipt
 validation, persistence failures, fresh/retry fairness, retry bounds, lease expiry and extension,

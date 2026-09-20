@@ -272,6 +272,9 @@ func (s *Stream) AppendBatch(payloads [][]byte, now time.Time) ([]Record, error)
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, badger.ErrTxnTooBig) {
+			return nil, fmt.Errorf("%w: %v", ErrBatchTooLarge, err)
+		}
 		return nil, fmt.Errorf("store: append to %q: %w", s.name, err)
 	}
 	s.tail = newTail

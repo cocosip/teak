@@ -173,6 +173,21 @@ func TestOversizedBatchIsAtomic(t *testing.T) {
 	}
 }
 
+func TestBadgerTransactionLimitMapsToBatchTooLarge(t *testing.T) {
+	_, stream := openTestStream(t, "jobs")
+	payloads := make([][]byte, stream.db.MaxBatchCount())
+	if _, err := stream.AppendBatch(payloads, time.Now()); !errors.Is(err, ErrBatchTooLarge) {
+		t.Fatalf("transaction-limit error = %v, want ErrBatchTooLarge", err)
+	}
+	counts, err := stream.Counts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Pending != 0 || counts.Tail != 0 {
+		t.Fatalf("transaction-limit failure changed storage: %+v", counts)
+	}
+}
+
 func TestConcurrentAppendIsContiguous(t *testing.T) {
 	_, stream := openTestStream(t, "jobs")
 	const workers = 8
