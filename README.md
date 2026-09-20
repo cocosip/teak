@@ -281,6 +281,7 @@ Use `errors.Is` with Teak's exported sentinels:
 | `ErrInvalidExtension` | Lease extension is not positive |
 | `ErrNotFound` | Pending or dead-letter record is absent |
 | `ErrBatchTooLarge` | Batch exceeds Teak or Badger's atomic transaction limit |
+| `ErrSequenceExhausted` | Log consumed every uint64 sequence and cannot assign more |
 | `ErrCorruptStorage` | Schema, envelope, tail, or durable state is inconsistent |
 
 Context cancellation and deadline errors are returned unchanged. If a commit result is not obtained
@@ -359,6 +360,5 @@ CI runs the build, vet, pinned lint, and race-enabled test gates on Windows and 
 - [Decision records](docs/decisions.md)
 - [Development status](docs/development.md)
 - [Testing strategy](docs/testing.md)
-- [Changelog](CHANGELOG.md)
 
 License: [MIT](LICENSE)

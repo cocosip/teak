@@ -25,7 +25,9 @@ application decision. A timeout or retry count never deletes data.
 `PrefetchCapacity` bounds the fresh queue and `MaxInFlight` bounds active leases. The retry lane is
 bounded by their combined capacity. At a bound, reads wait for commits, retries, or lease expiry;
 persistent records remain untouched. Size these limits from payload memory, worker concurrency, and
-the acceptable number of outstanding retries.
+the acceptable number of outstanding retries. Completions (`Commit`, `DeadLetter`) serialize per log
+across the synchronous transaction, so throughput scales by spreading work across logs, not by adding
+consumers to one log.
 
 Atomic batch payloads are limited to 32 MiB. Use application-sized batches below that limit rather than
 retrying one oversized batch as smaller pieces after an ambiguous result. Teak itself never silently

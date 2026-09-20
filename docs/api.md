@@ -32,7 +32,9 @@ factory, err := teak.New(options)
 ```
 
 Configuration builders return copies. `WithLog` copies its map, so independently derived options do
-not alias. Zero-valued fields in a named `LogConfig` inherit the default log configuration. Raw Badger
+not alias. Zero-valued fields in a named `LogConfig` inherit the default log configuration, and an
+invalid override name is rejected when the factory is constructed. A retry multiplier of one keeps
+every attempt at the initial delay; larger multipliers grow exponentially up to the maximum. Raw Badger
 options are intentionally unavailable; synchronous writes cannot be disabled.
 
 ## Producing
@@ -79,11 +81,14 @@ A decode error returns `*typed.DecodeError` containing every raw delivery from t
 
 Use `errors.Is` with the exported sentinels, including `ErrClosed`, `ErrInvalidOptions`,
 `ErrInvalidName`, `ErrInvalidDelivery`, `ErrInvalidDeadLetter`, `ErrStaleDelivery`, `ErrNotFound`,
-`ErrBatchTooLarge`, and `ErrCorruptStorage`. Context cancellation errors are returned unchanged.
+`ErrBatchTooLarge`, `ErrSequenceExhausted`, and `ErrCorruptStorage`. Context cancellation errors are
+returned unchanged.
 
 ## Statistics
 
 `Log.Stats` returns persistent pending/dead-letter counts and tail, process-local ready/retry/in-flight
 counts, oldest pending age, operation counters, backpressure, and storage errors. `Factory.Stats`
 returns value-log GC and maintenance-panic counters. Statistics are snapshots and are not a transaction
-with concurrent producer or consumer operations.
+with concurrent producer or consumer operations. Counts scan the durable prefixes and reap expired
+leases before reporting, so polling `Stats` on very large queues costs one iteration over pending and
+dead-letter keys per call.

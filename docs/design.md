@@ -125,6 +125,11 @@ Retry state is an optimization, not the durable source of truth; the pending key
 in one transaction. Requeue validates an opaque owner and immutable sequence identity before performing
 the inverse using a new sequence and retaining origin information.
 
+Completions (`Commit`, `DeadLetter`) hold the scheduler lock across their synchronous Badger
+transaction, so a slow fsync delays other completions on the same log rather than risking a duplicate
+lease. Writes append under the storage-layer lock and blocked `Read` waits release the scheduler lock,
+so producers and parked consumers are not serialized behind fsync.
+
 Duplicate and stale delivery operations are idempotent where possible and otherwise return a sentinel
 error. They can never commit a different record.
 
@@ -235,4 +240,6 @@ GC, but GC failures affect disk usage only and never change queue state.
 
 Stats include durable tail, pending, ready, in-flight, retry, and dead-letter counts; operation
 counters; lease expirations; duplicate deliveries; oldest pending age and sequence; backpressure; and
-storage errors. Logs include operation, stream, and sequence but never payload data.
+storage errors. Counts scan the durable prefixes and reap expired leases before reporting, so polling
+`Stats` costs one iteration over pending and dead-letter keys per call. Logs include operation,
+stream, and sequence but never payload data.

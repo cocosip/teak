@@ -105,7 +105,7 @@ passes build, vet, lint, tests, and race tests.
 - [x] Benchmark durable single writes, atomic batches, concurrent streams, delivery fan-out, and
   out-of-order commits.
 - [x] Publish configuration and operations guidance.
-- [x] Complete API documentation and changelog.
+- [x] Complete API documentation.
 - [x] Declare on-disk schema version 1 stable and complete the final local release gate.
 
 Version-control tagging and publishing are repository-owner release actions. The development workflow
