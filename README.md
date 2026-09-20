@@ -21,7 +21,8 @@ handling into logical sequence processing.
 
 Teak is in early development. The durable `internal/store` layer is complete: writes are synchronous,
 pending records and sequence tails are atomic, and commit/dead-letter operations never depend on a
-contiguous progress watermark. The dispatcher and public API are the next implementation milestone.
+contiguous progress watermark. The bounded dispatcher implements fair retries, delivery leases,
+restart recovery, and cancellation. The public API is the next implementation milestone.
 
 The public `teak` API shown in the design is not implemented yet. See
 [development.md](docs/development.md) for the verified status and next milestones.

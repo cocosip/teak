@@ -15,7 +15,7 @@ count as implementation.
 | Linux and Windows CI | Complete | build, vet, and race-enabled tests in `.github/workflows/ci.yml` |
 | golangci-lint rule set | Complete | `.golangci.yml` aligned with the `go-dicom` baseline |
 | Durable pending-record store | Complete | `internal/store` and storage integration tests |
-| Delivery dispatcher and leases | Not started | no root queue package yet |
+| Delivery dispatcher and leases | Complete | bounded `internal/dispatch` scheduler and fake-time tests |
 | Public byte API | Not started | README and design are explicitly prospective |
 | Typed JSON wrapper | Not started | no `typed` package |
 | Crash and liveness hardening | Not started | current tests cover clean reopen only |
@@ -67,12 +67,12 @@ the tail, out-of-order deletes are independent, and dead-letter transfer is atom
 
 ### M2: Dispatcher and delivery leases
 
-- [ ] Implement bounded fresh, retry, and in-flight structures.
-- [ ] Alternate fresh and retry deliveries when both are ready.
-- [ ] Implement visibility timeout, `Retry`, and `Extend`.
-- [ ] Wake scans on local writes without polling for correctness.
-- [ ] Recover all pending keys after restart.
-- [ ] Implement cancellation and leak-free shutdown.
+- [x] Implement bounded fresh, retry, and in-flight structures.
+- [x] Alternate fresh and retry deliveries when both are ready.
+- [x] Implement visibility timeout, `Retry`, and `Extend`.
+- [x] Wake scans on local writes without polling for correctness.
+- [x] Recover all pending keys after restart.
+- [x] Implement cancellation and leak-free shutdown.
 
 Exit: a permanently failing record is repeatedly available but does not prevent later records from
 being delivered and committed; restart redelivers every uncommitted record.

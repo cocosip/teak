@@ -21,6 +21,11 @@ The `internal/store` tests cover:
 
 Killed-process recovery and public delivery behavior are added in later milestones.
 
+The `internal/dispatch` tests use `testing/synctest` and a fake persistent source to cover receipt
+validation, persistence failures, fresh/retry fairness, retry bounds, lease expiry and extension,
+in-flight backpressure, write notification, restart recovery, cancellation, source errors, and clean
+shutdown.
+
 ## 2. Target Test Layers
 
 | Layer | Scope | Technique |
