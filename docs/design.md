@@ -116,7 +116,8 @@ Because deletion is per key, sequence 2 can remain pending while sequences 3 thr
 Retry state is an optimization, not the durable source of truth; the pending key remains present.
 
 `DeadLetter` reads the pending envelope, writes the dead-letter envelope, and deletes the pending key
-in one transaction. Requeue performs the inverse using a new sequence, retaining origin information.
+in one transaction. Requeue validates an opaque owner and immutable sequence identity before performing
+the inverse using a new sequence and retaining origin information.
 
 Duplicate and stale delivery operations are idempotent where possible and otherwise return a sentinel
 error. They can never commit a different record.
@@ -136,7 +137,7 @@ operation and surface an error. Recovery never converts them into successful ski
 
 ## 8. Public API Shape
 
-The planned root API is:
+The supported root API is:
 
 ```go
 type Position struct {
@@ -145,6 +146,8 @@ type Position struct {
 
 type Factory interface {
     Open(ctx context.Context, name string) (Log, error)
+    RunMaintenance(ctx context.Context) error
+    Stats() FactoryStats
     Close(ctx context.Context) error
 }
 
@@ -167,6 +170,7 @@ type Log interface {
 `Delivery` exposes payload, position, attempt, and deadline, but keeps its receipt opaque. The typed
 wrapper delegates lifecycle and delivery operations to the byte-level log and applies only codec work.
 Decode errors retain the raw deliveries so callers can explicitly retry or dead-letter them.
+Typed constructors return validation errors rather than panicking on invalid arguments.
 
 ## 9. Configuration
 
@@ -208,7 +212,8 @@ Setting the maintenance interval to zero disables automatic GC; callers may stil
 ## 10. Lifecycle
 
 `Close` rejects new operations, cancels the dispatcher, waits for its goroutines, and leaves every
-uncommitted record in Badger. The factory closes streams before closing the shared database.
+uncommitted record in Badger. A closed named log remains the factory's cached terminal handle; reopening
+the durable stream requires a new factory. The factory closes streams before closing the shared database.
 
 Cancellation before a request enters the stream coordinator has no persistent effect. Once an
 accepted write or commit enters its transaction, Teak waits for a definitive result rather than

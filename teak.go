@@ -60,7 +60,8 @@ type DeadLetter struct {
 	OriginStream   string
 	OriginSeq      uint64
 
-	owner *logStream
+	owner       *logStream
+	identitySeq uint64
 }
 
 // Stats combines persistent record counts with process-local delivery state.

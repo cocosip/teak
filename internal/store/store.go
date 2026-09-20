@@ -185,7 +185,7 @@ func (s *Stream) load() error {
 				return err
 			}
 			if len(value) != seqLen {
-				return fmt.Errorf("store: corrupt tail for stream %q", s.name)
+				return fmt.Errorf("%w: tail for stream %q", ErrCorruptEnvelope, s.name)
 			}
 			s.tail = binary.BigEndian.Uint64(value)
 		}

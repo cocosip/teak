@@ -44,7 +44,7 @@ func (l *logStream) Write(ctx context.Context, data []byte) (Position, error) {
 	defer l.end()
 	record, err := l.store.Append(data, time.Now())
 	if err != nil {
-		return Position{}, l.storageError("write", 0, err)
+		return Position{}, l.storageError("write", 0, mapError(err))
 	}
 	l.writes.Add(1)
 	l.dispatcher.Notify()
@@ -58,7 +58,7 @@ func (l *logStream) BatchWrite(ctx context.Context, data [][]byte) ([]Position, 
 	defer l.end()
 	records, err := l.store.AppendBatch(data, time.Now())
 	if err != nil {
-		return nil, l.storageError("batch-write", 0, err)
+		return nil, l.storageError("batch-write", 0, mapError(err))
 	}
 	positions := make([]Position, len(records))
 	for index, record := range records {
@@ -179,6 +179,7 @@ func (l *logStream) DeadLetters(ctx context.Context, from Position, count int) (
 			OriginStream:   record.OriginStream,
 			OriginSeq:      record.OriginSeq,
 			owner:          l,
+			identitySeq:    record.Seq,
 		}
 	}
 	return result, nil
@@ -189,7 +190,7 @@ func (l *logStream) Requeue(ctx context.Context, deadLetter DeadLetter) (Positio
 		return Position{}, err
 	}
 	defer l.end()
-	if deadLetter.owner != l {
+	if deadLetter.owner != l || deadLetter.identitySeq != deadLetter.Position.Seq {
 		return Position{}, ErrInvalidDeadLetter
 	}
 	record, err := l.store.Requeue(deadLetter.Position.Seq, time.Now())
@@ -207,7 +208,7 @@ func (l *logStream) Stats() (Stats, error) {
 	defer l.end()
 	persistent, err := l.store.Counts()
 	if err != nil {
-		return Stats{}, l.storageError("stats", 0, err)
+		return Stats{}, l.storageError("stats", 0, mapError(err))
 	}
 	local := l.dispatcher.Snapshot()
 	stats := Stats{

@@ -96,6 +96,54 @@ func TestReadCommitAndOpaqueReceiptValidation(t *testing.T) {
 	}
 }
 
+func TestReceiptCollisionDoesNotOverwriteActiveDelivery(t *testing.T) {
+	source := &fakeSource{}
+	source.add(1)
+	source.add(2)
+	dispatcher := newTestDispatcher(t, source, testConfig())
+	receipts := []Receipt{{1}, {1}, {2}}
+	dispatcher.newReceipt = func() (Receipt, error) {
+		receipt := receipts[0]
+		receipts = receipts[1:]
+		return receipt, nil
+	}
+
+	deliveries, err := dispatcher.Read(t.Context(), 2)
+	if err != nil || len(deliveries) != 2 {
+		t.Fatalf("read: len=%d err=%v", len(deliveries), err)
+	}
+	if deliveries[0].Receipt == deliveries[1].Receipt || dispatcher.Snapshot().InFlight != 2 {
+		t.Fatalf("colliding receipts overwrote an active delivery: %+v", deliveries)
+	}
+}
+
+func TestReceiptFailureRollsBackPartialBatch(t *testing.T) {
+	source := &fakeSource{}
+	source.add(1)
+	source.add(2)
+	dispatcher := newTestDispatcher(t, source, testConfig())
+	receiptCalls := 0
+	dispatcher.newReceipt = func() (Receipt, error) {
+		receiptCalls++
+		if receiptCalls == 2 {
+			return Receipt{}, errors.New("entropy unavailable")
+		}
+		return Receipt{byte(receiptCalls)}, nil
+	}
+
+	if _, err := dispatcher.Read(t.Context(), 2); err == nil {
+		t.Fatal("read succeeded after receipt generation failure")
+	}
+	if stats := dispatcher.Snapshot(); stats.InFlight != 0 || stats.Ready != 2 || stats.Deliveries != 0 {
+		t.Fatalf("partial read was not rolled back: %+v", stats)
+	}
+	dispatcher.newReceipt = randomReceipt
+	deliveries, err := dispatcher.Read(t.Context(), 2)
+	if err != nil || len(deliveries) != 2 || deliveries[0].Record.Seq != 1 || deliveries[1].Record.Seq != 2 {
+		t.Fatalf("records unavailable after receipt rollback: %+v, %v", deliveries, err)
+	}
+}
+
 func TestPersistFailureKeepsDeliveryInFlight(t *testing.T) {
 	source := &fakeSource{}
 	source.add(1)

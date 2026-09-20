@@ -1,6 +1,6 @@
 # Development Status
 
-Last reviewed against the repository on 2026-09-20 at commit `23f6c02`.
+Last reviewed against the repository on 2026-09-20 for the v0.1.0 release.
 
 This document records implemented behavior, known redesign work, and the order of development. A
 checked item means the behavior exists in code and has relevant tests; design approval alone does not
@@ -18,10 +18,11 @@ count as implementation.
 | Delivery dispatcher and leases | Complete | bounded `internal/dispatch` scheduler and fake-time tests |
 | Public byte API | Complete | root `Factory`, `Log`, delivery, options, errors, and stats |
 | Typed JSON wrapper | Complete | generic `typed.Log` and JSON codec |
-| Crash and liveness hardening | Complete | killed-process boundaries, stress, GC, panic, and CI gates |
+| Crash and liveness hardening | Complete | killed-process boundaries, receipt rollback, stress, GC, panic, and CI gates |
 
-The current test suite passes with `go test ./...` and `go test -race -timeout 10m ./...` on the
-review machine. Storage tests validate M1R; later milestone guarantees remain prospective.
+The complete build, vet, test, race, lint, crash-recovery, and benchmark gates pass on the Windows
+review machine. Linux build, lint, and race execution remains a CI responsibility because no local
+Linux runtime is available.
 
 ## 2. Completed Storage Foundation
 
@@ -105,7 +106,7 @@ passes build, vet, lint, tests, and race tests.
   out-of-order commits.
 - [x] Publish configuration and operations guidance.
 - [x] Complete API documentation and changelog.
-- [ ] Tag v0.1.0 only after the on-disk schema is declared stable.
+- [x] Declare on-disk schema version 1 stable and tag v0.1.0 after the final release gate.
 
 ## 5. Progress Rules
 

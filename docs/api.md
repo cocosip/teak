@@ -9,19 +9,31 @@ Create one `Factory` per Badger directory and share it across the process. `New`
 directory. `Factory.Open` caches a named competing-consumer log. `Factory.Close` stops maintenance,
 closes logs, waits for active operations, and then closes Badger.
 
+Closing a `Log` is terminal for that named handle within its factory. A later `Factory.Open` for the
+same name returns the same closed handle and its operations return `ErrClosed`. Create a new factory
+to open the durable stream again. Closing a log never deletes its pending records.
+
 ```go
 options := teak.DefaultOptions("./queue-data").
     WithLogger(logger).
     WithDefaultLog(teak.DefaultLogConfig().
         WithPrefetchCapacity(512).
         WithMaxInFlight(128).
-        WithVisibilityTimeout(time.Minute))
+        WithVisibilityTimeout(time.Minute).
+        WithRetryBackoff(teak.BackoffConfig{}.
+            WithInitial(2 * time.Second).
+            WithMax(2 * time.Minute).
+            WithMultiplier(2))).
+    WithLog("critical", teak.LogConfig{}.
+        WithMaxInFlight(32).
+        WithVisibilityTimeout(5 * time.Minute))
 
 factory, err := teak.New(options)
 ```
 
 Configuration builders return copies. `WithLog` copies its map, so independently derived options do
-not alias. Raw Badger options are intentionally unavailable; synchronous writes cannot be disabled.
+not alias. Zero-valued fields in a named `LogConfig` inherit the default log configuration. Raw Badger
+options are intentionally unavailable; synchronous writes cannot be disabled.
 
 ## Producing
 
@@ -48,15 +60,16 @@ a forged, expired, already completed, or cross-log delivery cannot delete data.
 
 ## Dead Letters
 
-`DeadLetters` returns an ordered bounded page. `Requeue` atomically removes a dead letter, appends a new
-pending sequence, and carries the original stream and sequence into the new delivery. Teak never
-automatically dead-letters or deletes a record.
+`DeadLetters` returns an ordered bounded page. `Requeue` validates the log and immutable dead-letter
+identity, atomically removes that dead letter, appends a new pending sequence, and carries the original
+stream and sequence into the new delivery. A copied dead letter remains valid, but changing its exposed
+position makes it invalid. Teak never automatically dead-letters or deletes a record.
 
 ## Typed API
 
-`typed.JSON[T](log)` applies `encoding/json` while retaining the byte log's durability and lifecycle.
-Custom codecs implement `typed.Codec[T]`. Encoding completes before persistence, so an encode error
-writes nothing.
+`typed.JSON[T](log)` returns `(*typed.Log[T], error)` and applies `encoding/json` while retaining the
+byte log's durability and lifecycle. It rejects a nil byte log without panicking. Custom codecs
+implement `typed.Codec[T]`. Encoding completes before persistence, so an encode error writes nothing.
 
 A decode error returns `*typed.DecodeError` containing every raw delivery from that read. Callers use
 `Raw()` to retry, commit, or dead-letter those deliveries explicitly. Codec panics become
@@ -65,8 +78,8 @@ A decode error returns `*typed.DecodeError` containing every raw delivery from t
 ## Errors
 
 Use `errors.Is` with the exported sentinels, including `ErrClosed`, `ErrInvalidOptions`,
-`ErrInvalidName`, `ErrInvalidDelivery`, `ErrStaleDelivery`, `ErrNotFound`, `ErrBatchTooLarge`, and
-`ErrCorruptStorage`. Context cancellation errors are returned unchanged.
+`ErrInvalidName`, `ErrInvalidDelivery`, `ErrInvalidDeadLetter`, `ErrStaleDelivery`, `ErrNotFound`,
+`ErrBatchTooLarge`, and `ErrCorruptStorage`. Context cancellation errors are returned unchanged.
 
 ## Statistics
 

@@ -48,7 +48,10 @@ func TestJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := typed.JSON[job](raw)
+	log, err := typed.JSON[job](raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	positions, err := log.BatchWrite(t.Context(), []job{{ID: 1, Name: firstName}, {ID: 2, Name: "two"}})
 	if err != nil || len(positions) != 2 {
 		t.Fatalf("write: %+v, %v", positions, err)
@@ -75,7 +78,10 @@ func TestDecodeErrorRetainsRawDelivery(t *testing.T) {
 	if _, err := raw.Write(t.Context(), []byte("not-json")); err != nil {
 		t.Fatal(err)
 	}
-	log := typed.JSON[job](raw)
+	log, err := typed.JSON[job](raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = log.Read(t.Context(), 1)
 	var decodeErr *typed.DecodeError
 	if !errors.As(err, &decodeErr) || len(decodeErr.Deliveries) != 1 || decodeErr.Index != 0 {
@@ -100,7 +106,10 @@ func TestTypedDeadLetterAndRequeue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := typed.JSON[job](raw)
+	log, err := typed.JSON[job](raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := log.Write(t.Context(), job{ID: 1, Name: firstName}); err != nil {
 		t.Fatal(err)
 	}
@@ -155,5 +164,12 @@ func TestCodecPanicsBecomeRecoverableErrors(t *testing.T) {
 	stats, err = raw.Stats()
 	if err != nil || stats.Pending != 1 || stats.InFlight != 1 {
 		t.Fatalf("decode panic lost delivery: %+v, %v", stats, err)
+	}
+}
+
+func TestJSONRejectsNilLogWithoutPanicking(t *testing.T) {
+	log, err := typed.JSON[job](nil)
+	if err == nil || log != nil {
+		t.Fatalf("JSON(nil) = %#v, %v", log, err)
 	}
 }

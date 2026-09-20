@@ -23,13 +23,14 @@ Killed-process recovery and public delivery behavior are added in later mileston
 
 The `internal/dispatch` tests use `testing/synctest` and a fake persistent source to cover receipt
 validation, persistence failures, fresh/retry fairness, retry bounds, lease expiry and extension,
-in-flight backpressure, write notification, restart recovery, cancellation, source errors, and clean
-shutdown.
+in-flight backpressure, receipt collision and entropy-failure rollback, write notification, restart
+recovery, cancellation, source errors, and clean shutdown.
 
 Root-package integration tests use the public API with real Badger storage. They cover out-of-order
 commit across restart, poison-record liveness, dead-letter requeue, forged and cross-log receipts,
-concurrent producers and consumers, configuration validation, and blocked-reader shutdown. The
-`typed` package tests JSON round trips and recoverable decode failures.
+dead-letter identity mutation, public error mapping, concurrent producers and consumers, configuration
+validation, terminal log close, and blocked-reader shutdown. The `typed` package tests JSON round trips,
+constructor validation, codec panic conversion, and recoverable decode failures.
 
 Killed-subprocess tests terminate the test binary inside uncommitted Badger transactions and directly
 after successful append, commit, and dead-letter operations. Reopen assertions prove that each

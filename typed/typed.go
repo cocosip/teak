@@ -116,12 +116,8 @@ func New[T any](raw teak.Log, codec Codec[T]) (*Log[T], error) {
 }
 
 // JSON wraps a byte log with the standard JSON codec.
-func JSON[T any](raw teak.Log) *Log[T] {
-	log, err := New[T](raw, JSONCodec[T]{})
-	if err != nil {
-		panic(err)
-	}
-	return log
+func JSON[T any](raw teak.Log) (*Log[T], error) {
+	return New[T](raw, JSONCodec[T]{})
 }
 
 // Raw returns the underlying byte log for operational handling of DecodeError deliveries.

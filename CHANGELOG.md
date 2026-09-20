@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
 - Public byte API, fluent configuration, statistics, optional structured logging, and JSON typed API.
 - Narrow panic recovery for caller codecs and the owned value-log maintenance worker.
 - Crash-process, corruption, concurrency, backpressure, retry, race, and benchmark coverage.
+- Receipt-collision protection, dead-letter identity validation, and public storage-error mapping.
 
 ### Guarantees
 

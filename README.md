@@ -19,9 +19,9 @@ handling into logical sequence processing.
 
 ## Status
 
-Teak is in active development. Durable storage, bounded delivery scheduling, the public byte API, the
-optional JSON typed wrapper, crash-process recovery tests, and value-log maintenance are implemented.
-Release benchmarks and final operational documentation remain before v0.1.0.
+Teak v0.1 provides durable storage, bounded delivery scheduling, the public byte API, fluent
+configuration, the optional JSON typed wrapper, crash-process recovery tests, value-log maintenance,
+release benchmarks, and operational documentation.
 
 ## Quickstart
 

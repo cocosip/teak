@@ -67,6 +67,8 @@ type Stats struct {
 
 type state uint8
 
+const receiptCollisionLimit = 16
+
 const (
 	stateFresh state = iota + 1
 	stateRetry
@@ -356,6 +358,8 @@ func (d *Dispatcher) takeLocked(count int, now time.Time) ([]Delivery, error) {
 		count = availableSlots
 	}
 	deliveries := make([]Delivery, 0, count)
+	selected := make([]selectedRecord, 0, count)
+	originalPreference := d.preferRetry
 	for len(deliveries) < count {
 		retryReady := len(d.retries) > 0 && !d.retries[0].readyAt.After(now)
 		trackedLimit := d.config.PrefetchCapacity + d.config.MaxInFlight
@@ -364,33 +368,35 @@ func (d *Dispatcher) takeLocked(count int, now time.Time) ([]Delivery, error) {
 			break
 		}
 
+		receipt, err := d.uniqueReceiptLocked()
+		if err != nil {
+			d.rollbackSelectionLocked(selected, originalPreference)
+			return nil, fmt.Errorf("dispatch: create receipt: %w", err)
+		}
+
 		var item *queuedRecord
+		var previousState state
 		switch {
 		case retryReady && freshReady && d.preferRetry:
 			item = heap.Pop(&d.retries).(*queuedRecord)
+			previousState = stateRetry
 			d.preferRetry = false
 		case retryReady && freshReady:
 			item = d.popFreshLocked()
+			previousState = stateFresh
 			d.preferRetry = true
 		case retryReady:
 			item = heap.Pop(&d.retries).(*queuedRecord)
+			previousState = stateRetry
 		case freshReady:
 			item = d.popFreshLocked()
-		}
-
-		receipt, err := d.newReceipt()
-		if err != nil {
-			if d.states[item.record.Seq] == stateRetry {
-				heap.Push(&d.retries, item)
-			} else {
-				d.fresh = append([]*queuedRecord{item}, d.fresh...)
-			}
-			return nil, fmt.Errorf("dispatch: create receipt: %w", err)
+			previousState = stateFresh
 		}
 		deadline := now.Add(d.config.VisibilityTimeout)
 		current := flight{record: item.record, receipt: receipt, attempt: item.attempt, deadline: deadline}
 		d.inFlight[receipt] = current
 		d.states[item.record.Seq] = stateInFlight
+		selected = append(selected, selectedRecord{item: item, previousState: previousState, receipt: receipt})
 		deliveries = append(deliveries, Delivery{
 			Record: store.Record{
 				Seq:          item.record.Seq,
@@ -406,6 +412,40 @@ func (d *Dispatcher) takeLocked(count int, now time.Time) ([]Delivery, error) {
 		d.stats.Deliveries++
 	}
 	return deliveries, nil
+}
+
+type selectedRecord struct {
+	item          *queuedRecord
+	previousState state
+	receipt       Receipt
+}
+
+func (d *Dispatcher) uniqueReceiptLocked() (Receipt, error) {
+	for range receiptCollisionLimit {
+		receipt, err := d.newReceipt()
+		if err != nil {
+			return Receipt{}, err
+		}
+		if _, exists := d.inFlight[receipt]; !exists {
+			return receipt, nil
+		}
+	}
+	return Receipt{}, errors.New("receipt collision limit reached")
+}
+
+func (d *Dispatcher) rollbackSelectionLocked(selected []selectedRecord, preference bool) {
+	for index := len(selected) - 1; index >= 0; index-- {
+		current := selected[index]
+		delete(d.inFlight, current.receipt)
+		d.states[current.item.record.Seq] = current.previousState
+		if current.previousState == stateRetry {
+			heap.Push(&d.retries, current.item)
+		} else {
+			d.fresh = append([]*queuedRecord{current.item}, d.fresh...)
+		}
+	}
+	d.preferRetry = preference
+	d.stats.Deliveries -= uint64(len(selected))
 }
 
 func (d *Dispatcher) popFreshLocked() *queuedRecord {

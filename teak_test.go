@@ -2,6 +2,7 @@ package teak_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cocosip/teak"
+	"github.com/dgraph-io/badger/v4"
 )
 
 func openTestLog(t *testing.T, options teak.Options, name string) (teak.Factory, teak.Log) {
@@ -161,6 +163,11 @@ func TestDeadLetterAndRequeuePreserveOrigin(t *testing.T) {
 	if err != nil || len(dead) != 1 || dead[0].Reason != "invalid payload" || dead[0].OriginSeq != 1 {
 		t.Fatalf("dead letters: %+v, %v", dead, err)
 	}
+	forged := dead[0]
+	forged.Position.Seq++
+	if _, err := log.Requeue(t.Context(), forged); !errors.Is(err, teak.ErrInvalidDeadLetter) {
+		t.Fatalf("requeue mutated dead letter = %v", err)
+	}
 	position, err := log.Requeue(t.Context(), dead[0])
 	if err != nil || position.Seq != 2 {
 		t.Fatalf("requeue: %+v, %v", position, err)
@@ -169,6 +176,60 @@ func TestDeadLetterAndRequeuePreserveOrigin(t *testing.T) {
 	if err != nil || requeued[0].Position.Seq != 2 || requeued[0].OriginStream != "jobs" ||
 		requeued[0].OriginSeq != 1 || string(requeued[0].Payload) != "payload" {
 		t.Fatalf("requeued delivery: %+v, %v", requeued, err)
+	}
+}
+
+func TestWriteErrorsUsePublicSentinels(t *testing.T) {
+	_, log := openTestLog(t, teak.DefaultOptions(t.TempDir()), "jobs")
+	payload := make([]byte, (32<<20)+1)
+	if _, err := log.Write(t.Context(), payload); !errors.Is(err, teak.ErrBatchTooLarge) {
+		t.Fatalf("oversized write = %v", err)
+	}
+	if _, err := log.BatchWrite(t.Context(), [][]byte{payload}); !errors.Is(err, teak.ErrBatchTooLarge) {
+		t.Fatalf("oversized batch write = %v", err)
+	}
+}
+
+func TestStatsMapsCorruptEnvelopeToPublicError(t *testing.T) {
+	dir := t.TempDir()
+	factory, err := teak.New(teak.DefaultOptions(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := factory.Open(t.Context(), "jobs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.Write(t.Context(), []byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	if err := factory.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := badger.Open(badger.DefaultOptions(dir).WithValueDir(dir).WithNumVersionsToKeep(1).WithLogger(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := binary.BigEndian.AppendUint64([]byte("t/jobs/d/"), 1)
+	if err := db.Update(func(txn *badger.Txn) error { return txn.Set(key, []byte{0xff}) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := teak.New(teak.DefaultOptions(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close(context.Background()) }()
+	reopenedLog, err := reopened.Open(t.Context(), "jobs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopenedLog.Stats(); !errors.Is(err, teak.ErrCorruptStorage) {
+		t.Fatalf("stats corruption error = %v", err)
 	}
 }
 
@@ -297,6 +358,23 @@ func TestCloseWakesBlockedReaderWithoutDeletingPending(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("blocked read did not exit")
+	}
+}
+
+func TestClosedLogRemainsClosedForFactoryLifetime(t *testing.T) {
+	factory, log := openTestLog(t, teak.DefaultOptions(t.TempDir()), "jobs")
+	if err := log.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := factory.Open(t.Context(), "jobs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened != log {
+		t.Fatal("factory returned a second handle for a cached log")
+	}
+	if _, err := reopened.Write(t.Context(), []byte("payload")); !errors.Is(err, teak.ErrClosed) {
+		t.Fatalf("write through reopened closed log = %v", err)
 	}
 }
 
