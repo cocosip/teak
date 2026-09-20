@@ -1,31 +1,41 @@
 # Teak
 
-Durable append-only log for Go, built on [BadgerDB](https://github.com/hypermodeinc/badger).
-Modeled after [SharpAbp.Abp.Faster](https://github.com/cocosip/sharp-abp/tree/master/framework/src/SharpAbp.Abp.Faster):
-multi-producer writes, multi-consumer reads with out-of-order commit, gap self-healing, and
-consumption-progress-driven truncation.
+Teak is a durable, at-least-once work queue for Go, backed by
+[BadgerDB](https://github.com/hypermodeinc/badger). It is designed for concurrent producers and
+consumers, out-of-order completion, retry after consumer failure, and restart recovery.
 
-**Status: early development** — M1 (badgerstore) in place; core mechanics (M2) next.
-See the [roadmap](docs/roadmap.md).
+The project is inspired by
+[SharpAbp.Abp.Faster](https://github.com/cocosip/sharp-abp/tree/master/framework/src/SharpAbp.Abp.Faster),
+but uses a Badger-native pending-record model. Teak does not copy FASTER's physical-address gap
+handling into logical sequence processing.
 
-- Module `github.com/cocosip/teak` · Go 1.26 · BadgerDB v4 (`github.com/dgraph-io/badger/v4`,
-  repo home [hypermodeinc/badger](https://github.com/hypermodeinc/badger))
-- Design & architecture: [docs/design.md](docs/design.md)
-- Decision records: [docs/decisions.md](docs/decisions.md)
-- Roadmap: [docs/roadmap.md](docs/roadmap.md)
-- Testing: [docs/testing.md](docs/testing.md)
+## Guarantees
 
-## Planned usage (design sketch, not implemented yet)
+- A successful write is durably stored before it returns.
+- A record is removed only after an explicit successful commit or an atomic move to dead letter.
+- An uncommitted record does not block later records from being delivered or committed.
+- Consumer failures and server restarts cause redelivery, not data loss.
+- Delivery is at least once; consumers must make external side effects idempotent.
 
-```go
-factory, _ := teak.Open(teak.Options{Dir: "data"})
-lg, _ := factory.Open(ctx, "events")
+## Status
 
-pos, _ := lg.Write(ctx, []byte("hello"))
+Teak is in early development. The existing `badgerstore` package is an M1 storage prototype. Its key
+layout, stream isolation, ordered scans, and tests are usable foundations, but sequence leasing,
+durability defaults, and range deletion must be replaced before the consumer layer is built.
 
-entries, _ := lg.Read(ctx, 100)
-// ... process entries ...
-_ = lg.Commit(ctx, positionsOf(entries))
-```
+The public `teak` API shown in the design is not implemented yet. See
+[development.md](docs/development.md) for the verified status and next milestones.
 
-License: [MIT](LICENSE).
+## Documentation
+
+- [Requirements](docs/requirements.md)
+- [Architecture and protocols](docs/design.md)
+- [Decision records](docs/decisions.md)
+- [Development status](docs/development.md)
+- [Testing strategy](docs/testing.md)
+
+Module: `github.com/cocosip/teak`
+
+Baseline: Go 1.26, BadgerDB v4.9.x
+
+License: [MIT](LICENSE)

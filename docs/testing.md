@@ -1,23 +1,82 @@
 # Testing Strategy
 
-CI runs everything with `-race`. Windows is the primary dev platform; Linux also runs in CI.
+Tests must prove both safety and liveness:
 
-## Layers
+- safety: no acknowledged write or uncommitted record is lost;
+- liveness: one failed record does not prevent later records from completing.
 
-| Layer | Scope | Tools |
+Windows is the primary development platform. Windows and Linux run the race-enabled suite in CI.
+
+## 1. Current Coverage
+
+The current `badgerstore/store_test.go` contains 12 tests covering:
+
+- key ordering and parsing;
+- stream-name validation and isolation;
+- put, batch put, ordered scan, and early scan stop;
+- metadata reads and writes;
+- prefix deletion;
+- sequence leasing and clean reopen;
+- concurrent allocation and writes;
+- stream instance reuse.
+
+These tests pass against the current prototype. Sequence-lease, hole, and prefix-delete expectations
+must be removed when M1R replaces those behaviors.
+
+## 2. Target Test Layers
+
+| Layer | Scope | Technique |
 |---|---|---|
-| Unit | range merging (tolerance, gaps, force-skip, MaxCompletedRanges cap), key codec round-trip & ordering, seq lease allocation/persistence | table-driven tests |
-| Component | scanner backpressure & close semantics; Complete/Truncate interval behavior; buffered-mode flush batching | `testing/synctest` (fake time; stable since Go 1.25) |
-| Integration | real Badger in `t.TempDir()`: multi-goroutine writers, multiple consumers, out-of-order `Commit`, `ForceCommitGap`, reopen recovery | plain `go test` |
-| Crash recovery | unclean shutdown injection points: between seq-lease persists, mid-scan, mid-truncate; assert no watermark regression and the documented hole behavior | injected failures / killed subprocess |
-| Benchmarks | write throughput (immediate vs buffered), batch sizes, read fan-out, truncate + value-log GC cost | `go test -bench`, `b.ReportAllocs` |
+| Unit | key/envelope codecs, option validation, retry ordering, receipt validation | table-driven tests |
+| Store integration | atomic append/tail, commit delete, dead letter, requeue, scan batches | real Badger in `t.TempDir()` |
+| Dispatcher | leases, expiry, extension, fairness, backpressure, shutdown | `testing/synctest` with a fake store |
+| End to end | concurrent writers/readers, out-of-order completion, restart recovery | public API plus real Badger |
+| Crash recovery | interruption at transaction and lifecycle boundaries | killed subprocess and failure injection |
+| Stress and race | queue saturation, slow consumers, repeated retry, concurrent close | `go test -race` |
+| Benchmarks | durable writes, batches, streams, fan-out, deletion and GC | `go test -bench`, `b.ReportAllocs` |
 
-## Rules
+## 3. Required Safety Scenarios
 
-- Every interval-driven mechanism is tested under `testing/synctest`; no real-time sleeps in tests.
-- Gap / data-loss paths assert the documented warning semantics, not just absence of error.
-- Badger options in tests use small memtable / value-log settings so flush and compaction paths
-  are exercised quickly.
-- The experimental goroutine-leak detector (Go 1.26 runtime) runs over the background-task suite
-  to catch task goroutines leaked after `Close`.
-- Benchmarks are informational until M5; the M4 exit gate is correctness only.
+- A successful append remains after clean close, process termination, and reopen.
+- Failure before transaction commit leaves neither data nor an advanced tail.
+- Failure after transaction commit returns a definitive committed result when the process remains alive.
+- An oversized batch writes no subset of its records.
+- `Commit` deletes only the record identified by a valid delivery receipt.
+- A stale or forged receipt cannot delete any record.
+- Dead-letter transfer leaves either the pending record or the dead-letter record at every injected
+  failure point, never neither.
+- Corrupt or unknown envelopes stop the operation and remain stored.
+
+## 4. Required Liveness Scenarios
+
+- Sequence 2 may remain uncommitted while later sequences are delivered and committed.
+- A `Retry` delay does not block fresh records.
+- A continuous stream of fresh records does not starve due retries.
+- An abandoned delivery is redelivered after its visibility timeout.
+- `Extend` prevents premature redelivery during long processing.
+- Restart immediately makes all remaining pending records eligible, without waiting for old leases.
+- Full ready or in-flight bounds apply backpressure without record loss or goroutine leaks.
+
+## 5. Timing and Goroutine Rules
+
+Use `testing/synctest` for visibility deadlines, retry delays, and shutdown coordination. Do not use
+real sleeps to prove timing behavior. A synctest bubble must finish with every owned goroutine exited.
+
+Badger I/O runs outside fake-time assertions because filesystem operations are not durably blocked
+inside a synctest bubble. Dispatcher tests use a fake store; integration tests use real Badger and
+explicit synchronization.
+
+## 6. CI Gates
+
+The release gate is:
+
+```text
+go build ./...
+go vet ./...
+golangci-lint run ./...
+go test ./...
+go test -race -timeout 10m ./...
+```
+
+The current workflow runs build, vet, and race-enabled tests on Windows and Linux. Pinned lint execution
+is scheduled for M4; the repository configuration is already maintained and can be run locally.

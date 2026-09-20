@@ -320,7 +320,11 @@ func TestSeqLeaseReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() {
+		if err := root.Close(); err != nil {
+			t.Errorf("close reopened root: %v", err)
+		}
+	}()
 	st, err = root.Stream("s")
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,120 @@
+# Development Status
+
+Last reviewed against the repository on 2026-09-20 at commit `23f6c02`.
+
+This document records implemented behavior, known redesign work, and the order of development. A
+checked item means the behavior exists in code and has relevant tests; design approval alone does not
+count as implementation.
+
+## 1. Current Snapshot
+
+| Area | Status | Evidence |
+|---|---|---|
+| Module and dependency baseline | Complete | `go.mod`: Go 1.26 and Badger v4.9.6 |
+| License | Complete | MIT `LICENSE` |
+| Linux and Windows CI | Complete | build, vet, and race-enabled tests in `.github/workflows/ci.yml` |
+| golangci-lint rule set | Complete | `.golangci.yml` aligned with the `go-dicom` baseline |
+| Badger storage prototype | Partial; redesign required | `badgerstore` and 12 unit/integration tests |
+| Durable pending-record store | Not started | target contract differs from the prototype |
+| Delivery dispatcher and leases | Not started | no root queue package yet |
+| Public byte API | Not started | README and design are explicitly prospective |
+| Typed JSON wrapper | Not started | no `typed` package |
+| Crash and liveness hardening | Not started | current tests cover clean reopen only |
+
+The current test suite passes with `go test ./...` and `go test -race -timeout 10m ./...` on the
+review machine. These tests validate the prototype, not the target durability guarantees.
+
+## 2. Reusable M1 Work
+
+The following implemented pieces match the target design and should be retained or adapted:
+
+- one shared `badger.DB` owned by `Root`;
+- cached per-name stream instances;
+- validated stream names;
+- per-stream key prefixes and big-endian sequence encoding;
+- ordered scans and stream isolation;
+- atomic `BatchPut` behavior within Badger's transaction limit;
+- metadata get/put primitives and not-found mapping;
+- tests for key ordering, validation, scan order, batch atomicity boundary, concurrency, reopen, and
+  stream isolation.
+
+## 3. M1 Work That Must Be Replaced
+
+The existing implementation is not considered complete under the approved requirements:
+
+| Current behavior | Problem | Required replacement |
+|---|---|---|
+| Sequence numbers leased in windows of 1,024 | Deliberately creates holes after reopen | Atomic record plus `m/tail` transaction |
+| `DefaultOptions` inherits `SyncWrites=false` | A successful update is not a hard-reboot durability guarantee | Force `SyncWrites=true` |
+| `Allocate` and `Put` are separate calls | A crash can leave allocated holes; callers can write arbitrary sequences | Store-level atomic append operations |
+| `DeleteBelow` deletes a contiguous prefix | One uncommitted record would block reclamation, or skipping it would lose data | Delete individual committed pending keys |
+| `ScanFrom` invokes callbacks inside one read transaction | Backpressure can retain a long-lived Badger iterator and snapshot | Bounded scan batches with copied values |
+| Raw Badger options are public | Callers can disable required durability | Internal Badger configuration with safe Teak options |
+| No envelope or schema version | Future decoding cannot distinguish incompatible data | Versioned pending and dead-letter envelopes |
+| No atomic dead-letter operation | Permanent failures have no lossless escape path | Copy-to-dead-letter plus pending delete in one transaction |
+
+## 4. Milestones
+
+### M1R: Repair the persistence contract
+
+- [ ] Replace sequence leasing with serialized atomic append and durable `m/tail`.
+- [ ] Force synchronous writes and reject options that weaken durability.
+- [ ] Add versioned pending and dead-letter envelopes.
+- [ ] Add bounded `ScanBatch` with owned payload bytes.
+- [ ] Add atomic per-record commit deletion.
+- [ ] Add atomic dead-letter and requeue operations.
+- [ ] Replace lease, hole, and prefix-delete tests with crash-boundary and per-record tests.
+
+Exit: storage tests prove that successful writes survive reopen, failed transactions do not advance
+the tail, out-of-order deletes are independent, and dead-letter transfer is atomic.
+
+### M2: Dispatcher and delivery leases
+
+- [ ] Implement bounded fresh, retry, and in-flight structures.
+- [ ] Alternate fresh and retry deliveries when both are ready.
+- [ ] Implement visibility timeout, `Retry`, and `Extend`.
+- [ ] Wake scans on local writes without polling for correctness.
+- [ ] Recover all pending keys after restart.
+- [ ] Implement cancellation and leak-free shutdown.
+
+Exit: a permanently failing record is repeatedly available but does not prevent later records from
+being delivered and committed; restart redelivers every uncommitted record.
+
+### M3: Public API and typed wrapper
+
+- [ ] Add root `Factory`, `Log`, `Delivery`, options, stats, and sentinel errors.
+- [ ] Protect commit operations with opaque delivery receipts.
+- [ ] Add the JSON typed wrapper.
+- [ ] Add a runnable quickstart after the public API exists.
+
+Exit: concurrent producers and consumers complete an end-to-end work-queue scenario using only the
+public API.
+
+### M4: Recovery and operational hardening
+
+- [ ] Add killed-subprocess crash tests around write, commit, and dead-letter boundaries.
+- [ ] Add corrupt-envelope and schema-version failure tests.
+- [ ] Add retry fairness, queue saturation, and slow-consumer stress tests.
+- [ ] Add value-log GC maintenance and metrics without coupling it to correctness.
+- [ ] Run the full race-enabled suite on Windows and Linux.
+- [ ] Add golangci-lint execution to CI with a pinned tool version.
+
+Exit: every acceptance criterion in [requirements.md](requirements.md) has an automated test, and CI
+passes build, vet, lint, tests, and race tests.
+
+### M5: v0.1 release
+
+- [ ] Benchmark durable single writes, atomic batches, concurrent streams, delivery fan-out, and
+  out-of-order commits.
+- [ ] Publish configuration and operations guidance.
+- [ ] Complete API documentation and changelog.
+- [ ] Tag v0.1.0 only after the on-disk schema is declared stable.
+
+## 5. Progress Rules
+
+- Update this file in the same change that completes or invalidates a milestone item.
+- Never mark a design, interface, or test scenario complete before corresponding code and verification
+  exist.
+- Record environment-blocked checks explicitly rather than treating them as passing.
+- Changes to the two reliability invariants require an ADR and explicit approval:
+  no acknowledged data loss, and no global consumption blockage from an uncommitted record.

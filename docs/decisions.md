@@ -1,60 +1,69 @@
 # Decision Records
 
-Lightweight ADRs. All decisions below were confirmed with the user on 2026-09-20; development
-has started against them. Context and analysis live in [design.md](design.md).
+These decisions define the current v0.1 baseline. Earlier draft choices based on FASTER physical
+addresses are superseded by ADR-0010.
 
-## ADR-0001 — Go 1.26 baseline — Accepted
+## ADR-0001: Go 1.26 baseline - Accepted
 
-`go.mod` declares `go 1.26`. Badger v4 requires Go ≥ 1.23, so the 1.26 toolchain is backward
-compatible with it. `testing/synctest` (stable since Go 1.25) is used to test the interval-driven
-background tasks (Commit/Complete/Truncate) without real sleeps.
+`go.mod` declares Go 1.26. Interval-driven tests use the stable `testing/synctest` package.
 
-## ADR-0002 — Storage engine: hypermodeinc/badger (module dgraph-io/badger/v4) — Accepted
+## ADR-0002: BadgerDB v4 storage - Accepted
 
-The GitHub repository moved to `hypermodeinc/badger` (v4.9.6, 2025-08) after Dgraph Labs was
-acquired by Hypermode, but the Go module path is unchanged: the go.mod still declares
-`module github.com/dgraph-io/badger/v4`, so that remains the canonical import path (importing
-`hypermodeinc/…` fails with a module-path mismatch). Pure Go (no cgo), requires Go ≥ 1.24,
-Windows supported. Concurrent blind writes are conflict-free (design.md §2.1) — the
-load-bearing property for the append-only write path.
+Use `github.com/dgraph-io/badger/v4`. Development moved to the
+`github.com/hypermodeinc/badger` repository, but the canonical Go module and import path remains
+`github.com/dgraph-io/badger/v4`.
 
-## ADR-0003 — One shared DB; streams isolated by key prefix — Accepted
+## ADR-0003: One shared database with prefixed streams - Accepted
 
-The Factory owns a single `badger.DB`; each named stream uses the prefix `t/<log>/…`.
-Rationale: one directory lock, one shared compaction/memtable budget, O(1) stream creation.
-Trade-off: per-stream space reclaim is incremental range-delete by the background task, not
-"delete the directory".
+One factory owns one Badger database. Streams use validated names and separate key prefixes. This
+avoids multiple directory locks and duplicate Badger memory budgets.
 
-## ADR-0004 — Default write mode: Immediate — Accepted
+## ADR-0004: Synchronous durable writes only in v0.1 - Accepted
 
-`Immediate` commits a write transaction per Write/BatchWrite call — durable on return
-(`SyncWrites` on). `Buffered` (in-memory aggregation + background flush, FASTER-like high
-throughput with a lossy recent window) stays available as an explicit opt-in. Default to the
-safe mode.
+Badger is opened with `SyncWrites=true`. `Write`, `BatchWrite`, `Commit`, and `DeadLetter` return only
+after their transaction result is known. The former draft's lossy buffered mode is removed. Future
+group commit must preserve the same return-time durability contract.
 
-## ADR-0005 — Codecs: interface-only in core; JSON codec bundled — Accepted
+## ADR-0005: Byte core with a JSON typed wrapper - Accepted
 
-`core` is byte-level; `typed` defines `Codec[T]` and ships `JSONCodec` only in v0.1. A binary
-codec (msgpack or custom) can be added later without interface changes. Keeps dependencies minimal.
+The root queue contract stores bytes. A generic typed wrapper owns the `Codec[T]` boundary and bundles
+JSON support in v0.1. Additional codecs do not change the storage contract.
 
-## ADR-0006 — Export deferred; not in the v0.1 Logger interface — Accepted
+## ADR-0006: Export and retained replay are deferred - Accepted
 
-Range dump to files (mirroring `ExportAsync`) is real but not needed by the primary consume flow.
-It can be added later as a separate optional `Exporter` interface without breaking the core
-interface.
+v0.1 is a work queue, not a retained event log. Committed records are deleted. Export and replay, if
+needed later, require a separate retention design rather than additions to the queue API.
 
-## ADR-0007 — Module path — Accepted
+## ADR-0007: Public module path - Accepted
 
-`module github.com/cocosip/teak`; repository `git@github.com:cocosip/teak.git`.
+The module path is `github.com/cocosip/teak`.
 
-## ADR-0008 — License — Accepted
+## ADR-0008: MIT license - Accepted
 
-MIT; see [LICENSE](../LICENSE). Badger itself is Apache-2.0; MIT usage of an Apache-2.0
-dependency is fine.
+Teak is MIT licensed. Badger's Apache-2.0 license is compatible with this usage.
 
-## ADR-0009 — Consumer position model — Accepted
+## ADR-0009: One competing-consumer group per stream - Accepted
 
-One consumption position per stream; multiple consumers share it (work-queue semantics,
-out-of-order commits healed by the gap merger) — same as the C# reference. Redelivery after a
-crash is at-least-once. Multi-group pub/sub semantics can be added later (truncation would then
-advance only to the slowest position).
+Readers of one stream compete for work. Consumer groups and pub/sub fan-out are deferred because they
+would require independent durable record state per group.
+
+## ADR-0010: Pending keys replace gap merging and truncate watermarks - Accepted
+
+The existence of `d/<seq>` is the durable pending state. `Commit` deletes that key independently.
+There is no continuous committed watermark, address-match tolerance, completed-range cap, forced gap
+completion, or prefix truncation protocol.
+
+This supersedes the earlier sequence-lease and FASTER-style gap design. FASTER's gaps are artifacts of
+physical byte addresses; applying the same tolerance to Teak sequence numbers could delete a delayed
+concurrent write.
+
+## ADR-0011: Process-local delivery leases with durable pending records - Accepted
+
+Delivery leases, retry deadlines, and scan cursors are in memory. The pending key remains durable while
+a record is in flight. Restart discards leases and redelivers every remaining pending key, providing
+at-least-once behavior without a fragile persisted cursor.
+
+## ADR-0012: Explicit atomic dead letter - Accepted
+
+Teak never discards a record after a timeout or attempt limit. The caller may atomically move a record
+from pending to dead letter. Requeue assigns a new sequence and retains origin information.
