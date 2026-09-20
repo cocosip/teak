@@ -386,7 +386,7 @@ func TestTailRegressionFailsOpen(t *testing.T) {
 }
 
 func TestDeadLetterRefusesConflictingState(t *testing.T) {
-	_, stream := openTestStream(t, "jobs")
+	root, stream := openTestStream(t, "jobs")
 	now := time.Unix(100, 0).UTC()
 	if _, err := stream.Append([]byte("pending"), now); err != nil {
 		t.Fatal(err)
@@ -413,6 +413,12 @@ func TestDeadLetterRefusesConflictingState(t *testing.T) {
 	deadLetters, err := stream.DeadLetters(1, 10)
 	if err != nil || len(deadLetters) != 1 || string(deadLetters[0].Payload) != "existing" {
 		t.Fatalf("dead letter changed after conflict: %+v, %v", deadLetters, err)
+	}
+	root.mu.Lock()
+	delete(root.streams, stream.name)
+	root.mu.Unlock()
+	if _, err := root.Stream(stream.name); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("open conflicting stream = %v", err)
 	}
 }
 

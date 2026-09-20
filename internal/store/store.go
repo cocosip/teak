@@ -198,6 +198,9 @@ func (s *Stream) load() error {
 				return fmt.Errorf("%w for stream %q: stored=%d tail=%d", ErrTailRegression, s.name, maximum, s.tail)
 			}
 		}
+		if err := validateStoredStates(txn, s.name); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -209,6 +212,54 @@ func maxStoredSequence(txn *badger.Txn, prefix []byte) (uint64, bool, error) {
 	iterator := txn.NewIterator(options)
 	defer iterator.Close()
 	iterator.Seek(sequenceKey(prefix, math.MaxUint64))
+	if !iterator.ValidForPrefix(prefix) {
+		return 0, false, nil
+	}
+	seq, ok := parseSequence(prefix, iterator.Item().Key())
+	if !ok {
+		return 0, false, ErrCorruptEnvelope
+	}
+	return seq, true, nil
+}
+
+func validateStoredStates(txn *badger.Txn, stream string) error {
+	options := badger.DefaultIteratorOptions
+	options.PrefetchValues = false
+	pending := txn.NewIterator(options)
+	defer pending.Close()
+	dead := txn.NewIterator(options)
+	defer dead.Close()
+
+	pendingKeys := pendingPrefix(stream)
+	deadKeys := deadPrefix(stream)
+	pending.Seek(pendingKeys)
+	dead.Seek(deadKeys)
+	for pending.ValidForPrefix(pendingKeys) || dead.ValidForPrefix(deadKeys) {
+		pendingSeq, pendingOK, err := currentSequence(pending, pendingKeys)
+		if err != nil {
+			return err
+		}
+		deadSeq, deadOK, err := currentSequence(dead, deadKeys)
+		if err != nil {
+			return err
+		}
+		switch {
+		case !pendingOK:
+			dead.Next()
+		case !deadOK:
+			pending.Next()
+		case pendingSeq == deadSeq:
+			return fmt.Errorf("%w: %s/%d exists as pending and dead letter", ErrStateConflict, stream, pendingSeq)
+		case pendingSeq < deadSeq:
+			pending.Next()
+		default:
+			dead.Next()
+		}
+	}
+	return nil
+}
+
+func currentSequence(iterator *badger.Iterator, prefix []byte) (uint64, bool, error) {
 	if !iterator.ValidForPrefix(prefix) {
 		return 0, false, nil
 	}

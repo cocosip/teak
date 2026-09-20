@@ -11,7 +11,7 @@ Windows is the primary development platform. Windows and Linux run the race-enab
 
 The `internal/store` tests cover:
 
-- key ordering, envelope round trips, corruption, and schema rejection;
+- key ordering, envelope round trips, corruption, schema rejection, and conflicting-state rejection;
 - stream-name validation, reuse, and isolation;
 - atomic append/tail behavior, oversized batches, clean reopen, and concurrent appends;
 - bounded owned-value scans;

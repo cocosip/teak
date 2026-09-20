@@ -61,6 +61,8 @@ dead:    version:u8, created_unix_nano:u64, dead_lettered_unix_nano:u64, origin_
 Schema and envelope versions are both `1` for v0.1. Lengths are validated before allocation and
 trailing data is rejected. On open, the durable tail must be at least the greatest pending or
 dead-letter sequence; regression is an error because continuing could overwrite or reuse a sequence.
+A key-only merge scan also rejects any sequence present in both pending and dead-letter state. These
+integrity checks do not decode or modify payloads.
 
 ## 4. Write Protocol
 
