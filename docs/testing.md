@@ -31,6 +31,11 @@ commit across restart, poison-record liveness, dead-letter requeue, forged and c
 concurrent producers and consumers, configuration validation, and blocked-reader shutdown. The
 `typed` package tests JSON round trips and recoverable decode failures.
 
+Killed-subprocess tests terminate the test binary inside uncommitted Badger transactions and directly
+after successful append, commit, and dead-letter operations. Reopen assertions prove that each
+boundary leaves the queue in the old or new atomic state, never a partially applied state. Maintenance
+tests prove that GC errors and recovered worker panics are observable without altering pending data.
+
 ## 2. Target Test Layers
 
 | Layer | Scope | Technique |
@@ -86,5 +91,6 @@ go test ./...
 go test -race -timeout 10m ./...
 ```
 
-The current workflow runs build, vet, and race-enabled tests on Windows and Linux. Pinned lint execution
-is scheduled for M4; the repository configuration is already maintained and can be run locally.
+The workflow runs build, vet, pinned golangci-lint v2.13.1, and race-enabled tests on Windows and
+Linux. The complete gate is verified locally on Windows; Linux execution is performed by CI because
+the primary development host has no Linux runtime.

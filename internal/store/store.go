@@ -34,6 +34,8 @@ var (
 	ErrBatchTooLarge = errors.New("store: batch too large")
 	// ErrUnsupportedSchema reports an unknown stream schema version.
 	ErrUnsupportedSchema = errors.New("store: unsupported schema version")
+	// ErrNoRewrite reports that value-log GC found no eligible file.
+	ErrNoRewrite = errors.New("store: no value log rewrite needed")
 )
 
 // Record is a copied pending record returned by ScanBatch.
@@ -125,7 +127,11 @@ func (r *Root) Close() error {
 
 // RunValueLogGC attempts one Badger value-log garbage collection pass.
 func (r *Root) RunValueLogGC(discardRatio float64) error {
-	return r.db.RunValueLogGC(discardRatio)
+	err := r.db.RunValueLogGC(discardRatio)
+	if errors.Is(err, badger.ErrNoRewrite) {
+		return ErrNoRewrite
+	}
+	return err
 }
 
 // Stream is the persistence handle for one named queue.

@@ -88,6 +88,9 @@ but must not delete, acknowledge, or skip persistent records.
 Teak exposes counts and ages for pending, ready, in-flight, retry, and dead-letter records, plus write,
 delivery, commit, retry, lease-expiry, and storage-error counters.
 
+Factory statistics expose value-log GC runs, rewrites, no-op passes, errors, and recovered maintenance
+panics. Maintenance failures may increase disk usage but cannot acknowledge or delete queue records.
+
 Errors and structured logs include the operation, stream, and sequence when available. Payload bytes
 must never be logged.
 

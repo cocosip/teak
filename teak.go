@@ -81,9 +81,20 @@ type Stats struct {
 	OldestPendingAge   time.Duration
 }
 
+// FactoryStats reports optional value-log maintenance activity.
+type FactoryStats struct {
+	ValueLogGCRuns      uint64
+	ValueLogGCRewrites  uint64
+	ValueLogGCNoRewrite uint64
+	ValueLogGCErrors    uint64
+	MaintenancePanics   uint64
+}
+
 // Factory owns one Badger database and its named logs.
 type Factory interface {
 	Open(ctx context.Context, name string) (Log, error)
+	RunMaintenance(ctx context.Context) error
+	Stats() FactoryStats
 	Close(ctx context.Context) error
 }
 

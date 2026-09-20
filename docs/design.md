@@ -157,10 +157,12 @@ Decode errors retain the raw deliveries so callers can explicitly retry or dead-
 
 ```go
 type Options struct {
-    Dir        string
-    DefaultLog LogConfig
-    Logs       map[string]LogConfig
-    Logger     *slog.Logger
+    Dir                    string
+    DefaultLog             LogConfig
+    Logs                   map[string]LogConfig
+    Logger                 *slog.Logger
+    MaintenanceInterval    time.Duration
+    ValueLogGCDiscardRatio float64
 }
 
 type LogConfig struct {
@@ -179,10 +181,14 @@ Initial defaults are:
 | Maximum in-flight deliveries | 1,024 records |
 | Visibility timeout | 30 seconds |
 | Retry backoff | exponential, 1 second to 1 minute |
+| Value-log GC interval | 5 minutes |
+| Value-log GC discard ratio | 0.5 |
 
 Configuration uses `time.Duration`, validates every bound, and cannot weaken synchronous durability.
 Options, log settings, and retry backoff also provide copy-returning `With...` methods for fluent
 configuration. Named-log builders clone the overrides map so derived configurations do not alias.
+Setting the maintenance interval to zero disables automatic GC; callers may still invoke
+`Factory.RunMaintenance`. GC errors and recovered maintenance panics are exposed by `Factory.Stats`.
 
 ## 10. Lifecycle
 

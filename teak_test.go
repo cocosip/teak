@@ -101,6 +101,50 @@ func TestDelayedFailureDoesNotBlockLaterRecord(t *testing.T) {
 	}
 }
 
+func TestRepeatedPoisonRetriesDoNotStarveFreshWork(t *testing.T) {
+	options := teak.DefaultOptions(t.TempDir())
+	options.DefaultLog = options.DefaultLog.
+		WithPrefetchCapacity(8).
+		WithMaxInFlight(4).
+		WithRetryBackoff(teak.BackoffConfig{}.
+			WithInitial(time.Nanosecond).
+			WithMax(time.Nanosecond).
+			WithMultiplier(1))
+	_, log := openTestLog(t, options, "jobs")
+	payloads := make([][]byte, 51)
+	payloads[0] = []byte("poison")
+	for index := 1; index < len(payloads); index++ {
+		payloads[index] = []byte{byte(index)}
+	}
+	if _, err := log.BatchWrite(t.Context(), payloads); err != nil {
+		t.Fatal(err)
+	}
+	completed := 0
+	for iteration := 0; completed < 50 && iteration < 200; iteration++ {
+		deliveries, err := log.Read(t.Context(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if deliveries[0].Position.Seq == 1 {
+			if err := log.Retry(t.Context(), deliveries...); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := log.Commit(t.Context(), deliveries...); err != nil {
+			t.Fatal(err)
+		}
+		completed++
+	}
+	if completed != 50 {
+		t.Fatalf("completed fresh records = %d, want 50", completed)
+	}
+	stats, err := log.Stats()
+	if err != nil || stats.Pending != 1 || stats.Retry != 1 {
+		t.Fatalf("poison retry stats: %+v, %v", stats, err)
+	}
+}
+
 func TestDeadLetterAndRequeuePreserveOrigin(t *testing.T) {
 	_, log := openTestLog(t, teak.DefaultOptions(t.TempDir()), "jobs")
 	if _, err := log.Write(t.Context(), []byte("payload")); err != nil {

@@ -17,10 +17,12 @@ const (
 
 // Options configures a Teak factory without exposing Badger internals.
 type Options struct {
-	Dir        string
-	DefaultLog LogConfig
-	Logs       map[string]LogConfig
-	Logger     *slog.Logger
+	Dir                    string
+	DefaultLog             LogConfig
+	Logs                   map[string]LogConfig
+	Logger                 *slog.Logger
+	MaintenanceInterval    time.Duration
+	ValueLogGCDiscardRatio float64
 }
 
 // LogConfig controls one stream's bounded delivery scheduler.
@@ -40,7 +42,10 @@ type BackoffConfig struct {
 
 // DefaultOptions returns the recommended durable queue configuration.
 func DefaultOptions(dir string) Options {
-	return Options{Dir: dir, DefaultLog: DefaultLogConfig()}
+	return Options{
+		Dir: dir, DefaultLog: DefaultLogConfig(), MaintenanceInterval: 5 * time.Minute,
+		ValueLogGCDiscardRatio: 0.5,
+	}
 }
 
 // WithDir returns a copy configured to use dir.
@@ -69,6 +74,19 @@ func (o Options) WithLog(name string, config LogConfig) Options {
 	}
 	logs[name] = config
 	o.Logs = logs
+	return o
+}
+
+// WithMaintenanceInterval returns a copy with periodic value-log GC configured.
+// A zero interval disables automatic maintenance.
+func (o Options) WithMaintenanceInterval(interval time.Duration) Options {
+	o.MaintenanceInterval = interval
+	return o
+}
+
+// WithValueLogGCDiscardRatio returns a copy with the Badger GC discard ratio configured.
+func (o Options) WithValueLogGCDiscardRatio(ratio float64) Options {
+	o.ValueLogGCDiscardRatio = ratio
 	return o
 }
 
@@ -157,6 +175,15 @@ func validateOptions(options Options) error {
 	}
 	if err := validateLogConfig(normalizeLogConfig(options.DefaultLog)); err != nil {
 		return err
+	}
+	if options.MaintenanceInterval < 0 {
+		return fmt.Errorf("%w: maintenance interval must not be negative", ErrInvalidOptions)
+	}
+	if options.ValueLogGCDiscardRatio == 0 {
+		options.ValueLogGCDiscardRatio = 0.5
+	}
+	if options.ValueLogGCDiscardRatio <= 0 || options.ValueLogGCDiscardRatio >= 1 {
+		return fmt.Errorf("%w: value-log GC discard ratio must be between zero and one", ErrInvalidOptions)
 	}
 	for name, config := range options.Logs {
 		if err := validateLogConfig(mergeLogConfig(config, normalizeLogConfig(options.DefaultLog))); err != nil {

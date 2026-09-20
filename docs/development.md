@@ -18,7 +18,7 @@ count as implementation.
 | Delivery dispatcher and leases | Complete | bounded `internal/dispatch` scheduler and fake-time tests |
 | Public byte API | Complete | root `Factory`, `Log`, delivery, options, errors, and stats |
 | Typed JSON wrapper | Complete | generic `typed.Log` and JSON codec |
-| Crash and liveness hardening | Not started | current tests cover clean reopen only |
+| Crash and liveness hardening | Complete | killed-process boundaries, stress, GC, panic, and CI gates |
 
 The current test suite passes with `go test ./...` and `go test -race -timeout 10m ./...` on the
 review machine. Storage tests validate M1R; later milestone guarantees remain prospective.
@@ -89,12 +89,12 @@ public API.
 
 ### M4: Recovery and operational hardening
 
-- [ ] Add killed-subprocess crash tests around write, commit, and dead-letter boundaries.
-- [ ] Add corrupt-envelope and schema-version failure tests.
-- [ ] Add retry fairness, queue saturation, and slow-consumer stress tests.
-- [ ] Add value-log GC maintenance and metrics without coupling it to correctness.
-- [ ] Run the full race-enabled suite on Windows and Linux.
-- [ ] Add golangci-lint execution to CI with a pinned tool version.
+- [x] Add killed-subprocess crash tests around write, commit, and dead-letter boundaries.
+- [x] Add corrupt-envelope and schema-version failure tests.
+- [x] Add retry fairness, queue saturation, and slow-consumer stress tests.
+- [x] Add value-log GC maintenance and metrics without coupling it to correctness.
+- [x] Configure the full race-enabled suite on Windows and Linux; verify it locally on Windows.
+- [x] Add golangci-lint execution to CI with a pinned tool version.
 
 Exit: every acceptance criterion in [requirements.md](requirements.md) has an automated test, and CI
 passes build, vet, lint, tests, and race tests.
