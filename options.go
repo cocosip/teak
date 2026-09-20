@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/cocosip/teak/internal/store"
 )
 
 const (
@@ -173,20 +175,20 @@ func validateOptions(options Options) error {
 	if options.Dir == "" {
 		return fmt.Errorf("%w: directory is required", ErrInvalidOptions)
 	}
-	if err := validateLogConfig(normalizeLogConfig(options.DefaultLog)); err != nil {
+	if err := validateLogConfig(options.DefaultLog); err != nil {
 		return err
 	}
 	if options.MaintenanceInterval < 0 {
 		return fmt.Errorf("%w: maintenance interval must not be negative", ErrInvalidOptions)
 	}
-	if options.ValueLogGCDiscardRatio == 0 {
-		options.ValueLogGCDiscardRatio = 0.5
-	}
 	if options.ValueLogGCDiscardRatio <= 0 || options.ValueLogGCDiscardRatio >= 1 {
 		return fmt.Errorf("%w: value-log GC discard ratio must be between zero and one", ErrInvalidOptions)
 	}
 	for name, config := range options.Logs {
-		if err := validateLogConfig(mergeLogConfig(config, normalizeLogConfig(options.DefaultLog))); err != nil {
+		if err := store.ValidateStreamName(name); err != nil {
+			return fmt.Errorf("%w: log %q: %v", ErrInvalidName, name, err)
+		}
+		if err := validateLogConfig(mergeLogConfig(config, options.DefaultLog)); err != nil {
 			return fmt.Errorf("teak: invalid configuration for log %q: %w", name, err)
 		}
 	}

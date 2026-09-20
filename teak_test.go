@@ -382,6 +382,9 @@ func TestOptionsAndNamesAreValidated(t *testing.T) {
 	if _, err := teak.New(teak.Options{}); !errors.Is(err, teak.ErrInvalidOptions) {
 		t.Fatalf("empty options = %v", err)
 	}
+	if _, err := teak.New(teak.DefaultOptions(t.TempDir()).WithLog("bad/name", teak.LogConfig{})); !errors.Is(err, teak.ErrInvalidName) {
+		t.Fatalf("invalid named override = %v", err)
+	}
 	factory, err := teak.New(teak.DefaultOptions(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)

@@ -37,13 +37,13 @@ var _ Factory = (*factory)(nil)
 
 // New opens a Teak factory using durable synchronous storage.
 func New(options Options) (Factory, error) {
-	if err := validateOptions(options); err != nil {
-		return nil, err
-	}
 	options.DefaultLog = normalizeLogConfig(options.DefaultLog)
 	options.Logs = cloneLogConfigs(options.Logs)
 	if options.ValueLogGCDiscardRatio == 0 {
 		options.ValueLogGCDiscardRatio = 0.5
+	}
+	if err := validateOptions(options); err != nil {
+		return nil, err
 	}
 	root, err := store.Open(options.Dir)
 	if err != nil {
@@ -252,6 +252,8 @@ func mapError(err error) error {
 		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	case errors.Is(err, store.ErrBatchTooLarge):
 		return fmt.Errorf("%w: %v", ErrBatchTooLarge, err)
+	case errors.Is(err, store.ErrSeqExhausted):
+		return fmt.Errorf("%w: %v", ErrSequenceExhausted, err)
 	case errors.Is(err, store.ErrCorruptEnvelope), errors.Is(err, store.ErrUnsupportedEnvelope),
 		errors.Is(err, store.ErrUnsupportedSchema), errors.Is(err, store.ErrTailRegression),
 		errors.Is(err, store.ErrStateConflict):

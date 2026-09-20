@@ -2,7 +2,6 @@
 package store
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -98,7 +97,7 @@ func Open(dir string) (*Root, error) {
 
 // Stream returns the process-unique handle for name and validates its schema.
 func (r *Root) Stream(name string) (*Stream, error) {
-	if err := validStreamName(name); err != nil {
+	if err := ValidateStreamName(name); err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
@@ -593,7 +592,9 @@ func (s *Stream) Counts() (Counts, error) {
 	return counts, err
 }
 
-func validStreamName(name string) error {
+// ValidateStreamName reports whether name is a supported stream identifier.
+// It is exported so configuration validation and storage agree on one rule.
+func ValidateStreamName(name string) error {
 	if name == "" || len(name) > 100 {
 		return fmt.Errorf("%w: %q", ErrInvalidStreamName, name)
 	}
@@ -607,14 +608,4 @@ func validStreamName(name string) error {
 		}
 	}
 	return nil
-}
-
-// CheckContext reports cancellation before a durable operation starts.
-func CheckContext(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
-	}
 }
