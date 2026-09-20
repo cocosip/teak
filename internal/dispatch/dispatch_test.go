@@ -534,3 +534,85 @@ func TestInvalidConfiguration(t *testing.T) {
 		t.Fatalf("new error = %v", err)
 	}
 }
+
+func TestRetryDelayMultiplierOneKeepsConstantDelay(t *testing.T) {
+	dispatcher := &Dispatcher{config: Config{RetryInitial: 3 * time.Second, RetryMax: time.Minute, RetryMultiplier: 1}}
+	for attempt := uint32(1); attempt <= 5; attempt++ {
+		if got := dispatcher.retryDelay(attempt); got != 3*time.Second {
+			t.Fatalf("retryDelay(%d) = %v, want constant 3s", attempt, got)
+		}
+	}
+}
+
+func TestRetryDelayGrowsExponentiallyAndCaps(t *testing.T) {
+	dispatcher := &Dispatcher{config: Config{RetryInitial: time.Second, RetryMax: time.Minute, RetryMultiplier: 2}}
+	want := map[uint32]time.Duration{
+		1: time.Second,
+		2: 2 * time.Second,
+		3: 4 * time.Second,
+		4: 8 * time.Second,
+		5: 16 * time.Second,
+		6: 32 * time.Second,
+		7: time.Minute,
+		8: time.Minute,
+	}
+	for attempt, expected := range want {
+		if got := dispatcher.retryDelay(attempt); got != expected {
+			t.Fatalf("retryDelay(%d) = %v, want %v", attempt, got, expected)
+		}
+	}
+}
+
+func TestBackpressureCountedOncePerBlockedRead(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		source := &fakeSource{}
+		source.add(1)
+		source.add(2)
+		config := testConfig()
+		config.MaxInFlight = 1
+		dispatcher := newTestDispatcher(t, source, config)
+		first, err := dispatcher.Read(t.Context(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		blocked := make(chan []Delivery, 1)
+		go func() {
+			deliveries, readErr := dispatcher.Read(t.Context(), 1)
+			if readErr != nil {
+				t.Errorf("blocked read: %v", readErr)
+			}
+			blocked <- deliveries
+		}()
+		synctest.Wait()
+		if stats := dispatcher.Snapshot(); stats.Backpressure != 1 {
+			t.Fatalf("backpressure events while blocked = %d, want exactly 1", stats.Backpressure)
+		}
+		if err := dispatcher.Commit(first, func([]uint64) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		second := <-blocked
+		if len(second) != 1 || second[0].Record.Seq != 2 {
+			t.Fatalf("second delivery = %+v", second)
+		}
+		if stats := dispatcher.Snapshot(); stats.Backpressure != 1 {
+			t.Fatalf("backpressure events after wake = %d, want still 1", stats.Backpressure)
+		}
+	})
+}
+
+func TestSnapshotReapsExpiredLeases(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		source := &fakeSource{}
+		source.add(1)
+		dispatcher := newTestDispatcher(t, source, testConfig())
+		if _, err := dispatcher.Read(t.Context(), 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(11 * time.Second)
+		stats := dispatcher.Snapshot()
+		if stats.InFlight != 0 || stats.Retry != 1 || stats.LeaseExpirations != 1 {
+			t.Fatalf("stats after expiry = %+v, want in-flight 0, retry 1, one expiration", stats)
+		}
+	})
+}

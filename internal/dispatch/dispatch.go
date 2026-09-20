@@ -172,7 +172,10 @@ func (d *Dispatcher) Read(ctx context.Context, count int) ([]Delivery, error) {
 			return deliveries, nil
 		}
 		wakeAt := d.nextWakeLocked()
-		if len(d.inFlight) >= d.config.MaxInFlight {
+		// Count at most once per wait cycle: full in-flight slots or a full
+		// prefetch buffer both mean capacity, not absence of records, is why
+		// nothing could be delivered.
+		if len(d.inFlight) >= d.config.MaxInFlight || len(d.fresh) >= d.config.PrefetchCapacity {
 			d.stats.Backpressure++
 		}
 		d.mu.Unlock()
@@ -292,10 +295,12 @@ func (d *Dispatcher) DeadLetter(delivery Delivery, persist func(uint64) error) e
 	return nil
 }
 
-// Snapshot returns a consistent copy of dispatcher state and counters.
+// Snapshot returns a consistent copy of dispatcher state and counters. Expired
+// leases are reaped first so the reported lane counts match the schedulable state.
 func (d *Dispatcher) Snapshot() Stats {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.expireLocked(d.now())
 	stats := d.stats
 	stats.Ready = uint64(len(d.fresh))
 	stats.Retry = uint64(len(d.retries))
@@ -325,7 +330,6 @@ func (d *Dispatcher) fillFresh() (bool, error) {
 	free := d.config.PrefetchCapacity - len(d.fresh)
 	from := d.cursor
 	if free <= 0 {
-		d.stats.Backpressure++
 		d.mu.Unlock()
 		return false, nil
 	}
@@ -506,8 +510,14 @@ func (d *Dispatcher) validateLocked(deliveries []Delivery) ([]uint64, error) {
 	return seqs, nil
 }
 
+// retryDelay returns the delay before attempt is redelivered. A multiplier of
+// one keeps every retry at the initial delay; larger multipliers grow the delay
+// exponentially and cap it at RetryMax.
 func (d *Dispatcher) retryDelay(attempt uint32) time.Duration {
 	delay := d.config.RetryInitial
+	if d.config.RetryMultiplier <= 1 {
+		return delay
+	}
 	for current := uint32(1); current < attempt && delay < d.config.RetryMax; current++ {
 		next := time.Duration(float64(delay) * d.config.RetryMultiplier)
 		if next <= delay || next > d.config.RetryMax {
