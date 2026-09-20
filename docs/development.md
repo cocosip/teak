@@ -14,35 +14,32 @@ count as implementation.
 | License | Complete | MIT `LICENSE` |
 | Linux and Windows CI | Complete | build, vet, and race-enabled tests in `.github/workflows/ci.yml` |
 | golangci-lint rule set | Complete | `.golangci.yml` aligned with the `go-dicom` baseline |
-| Badger storage prototype | Partial; redesign required | `badgerstore` and 12 unit/integration tests |
-| Durable pending-record store | Not started | target contract differs from the prototype |
+| Durable pending-record store | Complete | `internal/store` and storage integration tests |
 | Delivery dispatcher and leases | Not started | no root queue package yet |
 | Public byte API | Not started | README and design are explicitly prospective |
 | Typed JSON wrapper | Not started | no `typed` package |
 | Crash and liveness hardening | Not started | current tests cover clean reopen only |
 
 The current test suite passes with `go test ./...` and `go test -race -timeout 10m ./...` on the
-review machine. These tests validate the prototype, not the target durability guarantees.
+review machine. Storage tests validate M1R; later milestone guarantees remain prospective.
 
-## 2. Reusable M1 Work
+## 2. Completed Storage Foundation
 
-The following implemented pieces match the target design and should be retained or adapted:
+The persistence layer now provides:
 
-- one shared `badger.DB` owned by `Root`;
-- cached per-name stream instances;
-- validated stream names;
-- per-stream key prefixes and big-endian sequence encoding;
-- ordered scans and stream isolation;
-- atomic `BatchPut` behavior within Badger's transaction limit;
-- metadata get/put primitives and not-found mapping;
-- tests for key ordering, validation, scan order, batch atomicity boundary, concurrency, reopen, and
-  stream isolation.
+- one shared synchronously written `badger.DB` owned by `Root`;
+- cached and validated named streams with schema metadata;
+- atomic single and batch append with a durable tail;
+- versioned pending and dead-letter envelopes;
+- bounded scans that return owned payload bytes;
+- independent commit deletion, atomic dead-letter transfer, and atomic requeue;
+- persistent counts and oldest-pending metadata.
 
-## 3. M1 Work That Must Be Replaced
+## 3. Superseded Prototype Behavior
 
-The existing implementation is not considered complete under the approved requirements:
+The M1R implementation removed these prototype behaviors:
 
-| Current behavior | Problem | Required replacement |
+| Removed behavior | Problem | Replacement |
 |---|---|---|
 | Sequence numbers leased in windows of 1,024 | Deliberately creates holes after reopen | Atomic record plus `m/tail` transaction |
 | `DefaultOptions` inherits `SyncWrites=false` | A successful update is not a hard-reboot durability guarantee | Force `SyncWrites=true` |
@@ -57,13 +54,13 @@ The existing implementation is not considered complete under the approved requir
 
 ### M1R: Repair the persistence contract
 
-- [ ] Replace sequence leasing with serialized atomic append and durable `m/tail`.
-- [ ] Force synchronous writes and reject options that weaken durability.
-- [ ] Add versioned pending and dead-letter envelopes.
-- [ ] Add bounded `ScanBatch` with owned payload bytes.
-- [ ] Add atomic per-record commit deletion.
-- [ ] Add atomic dead-letter and requeue operations.
-- [ ] Replace lease, hole, and prefix-delete tests with crash-boundary and per-record tests.
+- [x] Replace sequence leasing with serialized atomic append and durable `m/tail`.
+- [x] Force synchronous writes and remove public Badger options.
+- [x] Add versioned pending and dead-letter envelopes.
+- [x] Add bounded `ScanBatch` with owned payload bytes.
+- [x] Add atomic per-record commit deletion.
+- [x] Add atomic dead-letter and requeue operations.
+- [x] Replace lease, hole, and prefix-delete tests with transaction-failure and per-record tests.
 
 Exit: storage tests prove that successful writes survive reopen, failed transactions do not advance
 the tail, out-of-order deletes are independent, and dead-letter transfer is atomic.

@@ -19,9 +19,9 @@ handling into logical sequence processing.
 
 ## Status
 
-Teak is in early development. The existing `badgerstore` package is an M1 storage prototype. Its key
-layout, stream isolation, ordered scans, and tests are usable foundations, but sequence leasing,
-durability defaults, and range deletion must be replaced before the consumer layer is built.
+Teak is in early development. The durable `internal/store` layer is complete: writes are synchronous,
+pending records and sequence tails are atomic, and commit/dead-letter operations never depend on a
+contiguous progress watermark. The dispatcher and public API are the next implementation milestone.
 
 The public `teak` API shown in the design is not implemented yet. See
 [development.md](docs/development.md) for the verified status and next milestones.

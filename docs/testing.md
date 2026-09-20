@@ -7,21 +7,19 @@ Tests must prove both safety and liveness:
 
 Windows is the primary development platform. Windows and Linux run the race-enabled suite in CI.
 
-## 1. Current Coverage
+## 1. Storage Coverage
 
-The current `badgerstore/store_test.go` contains 12 tests covering:
+The `internal/store` tests cover:
 
-- key ordering and parsing;
-- stream-name validation and isolation;
-- put, batch put, ordered scan, and early scan stop;
-- metadata reads and writes;
-- prefix deletion;
-- sequence leasing and clean reopen;
-- concurrent allocation and writes;
-- stream instance reuse.
+- key ordering, envelope round trips, corruption, and schema rejection;
+- stream-name validation, reuse, and isolation;
+- atomic append/tail behavior, oversized batches, clean reopen, and concurrent appends;
+- bounded owned-value scans;
+- independent and batch-atomic commits;
+- failure-injected dead-letter transfer and origin-preserving requeue;
+- persistent counts and oldest-pending metadata.
 
-These tests pass against the current prototype. Sequence-lease, hole, and prefix-delete expectations
-must be removed when M1R replaces those behaviors.
+Killed-process recovery and public delivery behavior are added in later milestones.
 
 ## 2. Target Test Layers
 
