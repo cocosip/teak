@@ -101,10 +101,10 @@ passes build, vet, lint, tests, and race tests.
 
 ### M5: v0.1 release
 
-- [ ] Benchmark durable single writes, atomic batches, concurrent streams, delivery fan-out, and
+- [x] Benchmark durable single writes, atomic batches, concurrent streams, delivery fan-out, and
   out-of-order commits.
-- [ ] Publish configuration and operations guidance.
-- [ ] Complete API documentation and changelog.
+- [x] Publish configuration and operations guidance.
+- [x] Complete API documentation and changelog.
 - [ ] Tag v0.1.0 only after the on-disk schema is declared stable.
 
 ## 5. Progress Rules

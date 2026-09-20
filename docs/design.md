@@ -47,6 +47,21 @@ The envelope has an explicit format version and contains a copied payload. A dea
 contains the original stream and sequence, failure reason, and dead-letter time. Unknown versions are
 errors; the reader does not guess or skip them.
 
+Schema version 1 uses these big-endian binary envelopes:
+
+```text
+pending: version:u8, created_unix_nano:u64, origin_seq:u64,
+         origin_stream_len:u32, origin_stream:bytes, payload_len:u64, payload:bytes
+
+dead:    version:u8, created_unix_nano:u64, dead_lettered_unix_nano:u64, origin_seq:u64,
+         origin_stream_len:u32, origin_stream:bytes, payload_len:u64, payload:bytes,
+         reason_len:u32, reason:bytes
+```
+
+Schema and envelope versions are both `1` for v0.1. Lengths are validated before allocation and
+trailing data is rejected. On open, the durable tail must be at least the greatest pending or
+dead-letter sequence; regression is an error because continuing could overwrite or reuse a sequence.
+
 ## 4. Write Protocol
 
 Each stream has a write coordinator. Concurrent callers enter the coordinator, which serializes

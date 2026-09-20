@@ -78,3 +78,10 @@ Teak does not blanket-recover panics in synchronous storage code because that wo
 violations. Panics from caller-provided typed codecs are converted to `CodecPanicError`, leaving the
 delivery pending. Owned maintenance goroutines recover only at their outer boundary, log the stack,
 and stop that maintenance loop without changing queue state.
+
+## ADR-0014: Schema version 1 is the v0.1 compatibility boundary - Accepted
+
+The key layout and big-endian pending/dead-letter envelope fields documented in `design.md` are frozen
+for v0.1. Readers reject unknown versions, trailing bytes, tail regression, and conflicting durable
+states. A future incompatible layout requires a new schema/envelope version and an explicit migration;
+it must never reinterpret existing bytes in place.

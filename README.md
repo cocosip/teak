@@ -71,9 +71,13 @@ an idempotency key before calling `Commit`.
 
 - [Requirements](docs/requirements.md)
 - [Architecture and protocols](docs/design.md)
+- [API guide](docs/api.md)
+- [Operations guide](docs/operations.md)
+- [Benchmark baseline](docs/benchmarks.md)
 - [Decision records](docs/decisions.md)
 - [Development status](docs/development.md)
 - [Testing strategy](docs/testing.md)
+- [Changelog](CHANGELOG.md)
 
 Module: `github.com/cocosip/teak`
 
