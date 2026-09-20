@@ -89,11 +89,15 @@ Each stream owns one dispatcher with three bounded structures:
 3. an in-flight table keyed by sequence and opaque receipt.
 
 Scans use short-lived read transactions and copy envelopes before closing the transaction. The
-dispatcher never waits on a full channel while retaining a Badger iterator.
+dispatcher never waits on a full channel while retaining a Badger iterator. Reaching the current tail
+is cached to avoid scanning storage again for every retry; a successful local write or requeue clears
+that cache and wakes readers. A notification received while a scan is in progress also wins over the
+scan result, so an append cannot be hidden by a concurrent empty scan.
 
 When fresh and retry work are both ready, the dispatcher alternates one delivery from each lane. This
 prevents a poison record from starving new work and prevents a continuous write stream from starving
-retries.
+retries. When the fresh lane becomes empty, the dispatcher checks for the next durable batch before
+returning another due retry, so a continuously ready poison record cannot stop cursor advancement.
 
 `Read` creates an in-memory delivery lease. The persistent `d/<seq>` key remains untouched while the
 caller works:

@@ -15,13 +15,22 @@ type fakeSource struct {
 	mu      sync.Mutex
 	records []store.Record
 	err     error
+	scans   int
+	onScan  func()
 }
 
 func (s *fakeSource) ScanBatch(from uint64, limit int) ([]store.Record, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.scans++
+	onScan := s.onScan
+	s.onScan = nil
 	if s.err != nil {
-		return nil, s.err
+		err := s.err
+		s.mu.Unlock()
+		if onScan != nil {
+			onScan()
+		}
+		return nil, err
 	}
 	result := make([]store.Record, 0, limit)
 	for _, record := range s.records {
@@ -32,12 +41,28 @@ func (s *fakeSource) ScanBatch(from uint64, limit int) ([]store.Record, error) {
 			break
 		}
 	}
+	s.mu.Unlock()
+	if onScan != nil {
+		onScan()
+	}
 	return result, nil
 }
 
 func (s *fakeSource) add(seq uint64) {
 	s.mu.Lock()
 	s.records = append(s.records, store.Record{Seq: seq, CreatedAt: time.Now(), Payload: []byte{byte(seq)}})
+	s.mu.Unlock()
+}
+
+func (s *fakeSource) scanCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scans
+}
+
+func (s *fakeSource) notifyDuringNextScan(notify func()) {
+	s.mu.Lock()
+	s.onScan = notify
 	s.mu.Unlock()
 }
 
@@ -217,6 +242,88 @@ func TestFreshAndRetryLanesAlternate(t *testing.T) {
 			t.Fatalf("second mixed-lane read = %+v, %v", retry, err)
 		}
 	})
+}
+
+func TestDueRetryDoesNotPreventNextFreshScan(t *testing.T) {
+	source := &fakeSource{}
+	for seq := uint64(1); seq <= 4; seq++ {
+		source.add(seq)
+	}
+	config := testConfig()
+	config.PrefetchCapacity = 2
+	config.MaxInFlight = 1
+	config.RetryInitial = 0
+	config.RetryMax = 0
+	dispatcher := newTestDispatcher(t, source, config)
+
+	poison, err := dispatcher.Read(t.Context(), 1)
+	if err != nil || poison[0].Record.Seq != 1 {
+		t.Fatalf("first delivery = %+v, %v", poison, err)
+	}
+	if err := dispatcher.Retry(poison); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := dispatcher.Read(t.Context(), 1)
+	if err != nil || fresh[0].Record.Seq != 2 {
+		t.Fatalf("last prefetched delivery = %+v, %v", fresh, err)
+	}
+	if err := dispatcher.Commit(fresh, func([]uint64) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	poison, err = dispatcher.Read(t.Context(), 1)
+	if err != nil || poison[0].Record.Seq != 1 {
+		t.Fatalf("retry before refill = %+v, %v", poison, err)
+	}
+	if err := dispatcher.Retry(poison); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err = dispatcher.Read(t.Context(), 1)
+	if err != nil || fresh[0].Record.Seq != 3 {
+		t.Fatalf("first delivery after refill = %+v, %v", fresh, err)
+	}
+}
+
+func TestEmptyScanIsCachedUntilNotify(t *testing.T) {
+	source := &fakeSource{}
+	dispatcher := newTestDispatcher(t, source, testConfig())
+
+	if progress, err := dispatcher.fillFresh(); err != nil || progress {
+		t.Fatalf("first empty scan: progress=%v err=%v", progress, err)
+	}
+	if progress, err := dispatcher.fillFresh(); err != nil || progress {
+		t.Fatalf("cached empty scan: progress=%v err=%v", progress, err)
+	}
+	if scans := source.scanCount(); scans != 1 {
+		t.Fatalf("empty scan count = %d, want 1", scans)
+	}
+
+	source.add(1)
+	dispatcher.Notify()
+	if progress, err := dispatcher.fillFresh(); err != nil || !progress {
+		t.Fatalf("scan after notify: progress=%v err=%v", progress, err)
+	}
+	if scans := source.scanCount(); scans != 2 {
+		t.Fatalf("scan count after notify = %d, want 2", scans)
+	}
+}
+
+func TestNotifyDuringScanKeepsTailInvalidated(t *testing.T) {
+	source := &fakeSource{}
+	dispatcher := newTestDispatcher(t, source, testConfig())
+	source.notifyDuringNextScan(dispatcher.Notify)
+
+	if progress, err := dispatcher.fillFresh(); err != nil || progress {
+		t.Fatalf("notified empty scan: progress=%v err=%v", progress, err)
+	}
+	if progress, err := dispatcher.fillFresh(); err != nil || progress {
+		t.Fatalf("scan after concurrent notify: progress=%v err=%v", progress, err)
+	}
+	if scans := source.scanCount(); scans != 2 {
+		t.Fatalf("scan count after concurrent notify = %d, want 2", scans)
+	}
 }
 
 func TestRetryLaneRemainsBounded(t *testing.T) {

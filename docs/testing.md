@@ -23,8 +23,8 @@ Killed-process recovery and public delivery behavior are covered by the later te
 
 The `internal/dispatch` tests use `testing/synctest` and a fake persistent source to cover receipt
 validation, persistence failures, fresh/retry fairness, retry bounds, lease expiry and extension,
-in-flight backpressure, receipt collision and entropy-failure rollback, write notification, restart
-recovery, cancellation, source errors, and clean shutdown.
+in-flight backpressure, receipt collision and entropy-failure rollback, cached tail scans, concurrent
+write notification, restart recovery, cancellation, source errors, and clean shutdown.
 
 Root-package integration tests use the public API with real Badger storage. They cover out-of-order
 commit across restart, poison-record liveness, dead-letter requeue, forged and cross-log receipts,
@@ -65,6 +65,7 @@ tests prove that GC errors and recovered worker panics are observable without al
 
 - Sequence 2 may remain uncommitted while later sequences are delivered and committed.
 - A `Retry` delay does not block fresh records.
+- A continuously due retry cannot prevent scanning and delivering the next durable batch.
 - A continuous stream of fresh records does not starve due retries.
 - An abandoned delivery is redelivered after its visibility timeout.
 - `Extend` prevents premature redelivery during long processing.

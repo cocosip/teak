@@ -99,6 +99,7 @@ type Dispatcher struct {
 	closed      bool
 	cursor      uint64
 	scanDone    bool
+	scanEmpty   bool
 	fresh       []*queuedRecord
 	retries     retryHeap
 	inFlight    map[Receipt]flight
@@ -135,6 +136,7 @@ func New(source Source, config Config) (*Dispatcher, error) {
 // Notify wakes blocked readers after durable records are appended or requeued.
 func (d *Dispatcher) Notify() {
 	d.mu.Lock()
+	d.scanEmpty = false
 	d.notifyLocked()
 	d.mu.Unlock()
 }
@@ -152,6 +154,14 @@ func (d *Dispatcher) Read(ctx context.Context, count int) ([]Delivery, error) {
 		}
 		now := d.now()
 		d.expireLocked(now)
+		if len(d.fresh) == 0 && len(d.retries) > 0 && len(d.inFlight) < d.config.MaxInFlight &&
+			!d.scanDone && !d.scanEmpty {
+			d.mu.Unlock()
+			if _, err := d.fillFresh(); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		deliveries, err := d.takeLocked(count, now)
 		if err != nil {
 			d.mu.Unlock()
@@ -308,7 +318,7 @@ func (d *Dispatcher) fillFresh() (bool, error) {
 	defer d.scanMu.Unlock()
 
 	d.mu.Lock()
-	if d.closed || d.scanDone {
+	if d.closed || d.scanDone || d.scanEmpty {
 		d.mu.Unlock()
 		return false, nil
 	}
@@ -319,18 +329,25 @@ func (d *Dispatcher) fillFresh() (bool, error) {
 		d.mu.Unlock()
 		return false, nil
 	}
+	// Treat this scan as reaching the current tail unless it fills the batch.
+	// Notify clears the flag while I/O is in progress, so a concurrent append
+	// cannot be hidden when the scan result is empty or partial.
+	d.scanEmpty = true
 	d.mu.Unlock()
 
 	records, err := d.source.ScanBatch(from, free)
 	if err != nil {
+		d.mu.Lock()
+		d.scanEmpty = false
+		d.mu.Unlock()
 		return false, err
-	}
-	if len(records) == 0 {
-		return false, nil
 	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if len(records) == free {
+		d.scanEmpty = false
+	}
 	progress := false
 	for _, record := range records {
 		if record.Seq < d.cursor {
