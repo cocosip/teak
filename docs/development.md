@@ -1,6 +1,6 @@
 # Development Status
 
-Last reviewed against the repository on 2026-09-20 for the v0.1.0 release.
+Last reviewed against the repository on 2026-09-20 for the v0.1.0 release candidate.
 
 This document records implemented behavior, known redesign work, and the order of development. A
 checked item means the behavior exists in code and has relevant tests; design approval alone does not
@@ -100,13 +100,16 @@ public API.
 Exit: every acceptance criterion in [requirements.md](requirements.md) has an automated test, and CI
 passes build, vet, lint, tests, and race tests.
 
-### M5: v0.1 release
+### M5: v0.1 release readiness
 
 - [x] Benchmark durable single writes, atomic batches, concurrent streams, delivery fan-out, and
   out-of-order commits.
 - [x] Publish configuration and operations guidance.
 - [x] Complete API documentation and changelog.
-- [x] Declare on-disk schema version 1 stable and tag v0.1.0 after the final release gate.
+- [x] Declare on-disk schema version 1 stable and complete the final local release gate.
+
+Version-control tagging and publishing are repository-owner release actions. The development workflow
+does not create a release tag.
 
 ## 5. Progress Rules
 
