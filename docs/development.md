@@ -16,8 +16,8 @@ count as implementation.
 | golangci-lint rule set | Complete | `.golangci.yml` aligned with the `go-dicom` baseline |
 | Durable pending-record store | Complete | `internal/store` and storage integration tests |
 | Delivery dispatcher and leases | Complete | bounded `internal/dispatch` scheduler and fake-time tests |
-| Public byte API | Not started | README and design are explicitly prospective |
-| Typed JSON wrapper | Not started | no `typed` package |
+| Public byte API | Complete | root `Factory`, `Log`, delivery, options, errors, and stats |
+| Typed JSON wrapper | Complete | generic `typed.Log` and JSON codec |
 | Crash and liveness hardening | Not started | current tests cover clean reopen only |
 
 The current test suite passes with `go test ./...` and `go test -race -timeout 10m ./...` on the
@@ -79,10 +79,10 @@ being delivered and committed; restart redelivers every uncommitted record.
 
 ### M3: Public API and typed wrapper
 
-- [ ] Add root `Factory`, `Log`, `Delivery`, options, stats, and sentinel errors.
-- [ ] Protect commit operations with opaque delivery receipts.
-- [ ] Add the JSON typed wrapper.
-- [ ] Add a runnable quickstart after the public API exists.
+- [x] Add root `Factory`, `Log`, `Delivery`, options, stats, and sentinel errors.
+- [x] Protect commit operations with opaque delivery receipts.
+- [x] Add the JSON typed wrapper.
+- [x] Add a runnable quickstart after the public API exists.
 
 Exit: concurrent producers and consumers complete an end-to-end work-queue scenario using only the
 public API.

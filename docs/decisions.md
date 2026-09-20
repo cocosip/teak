@@ -67,3 +67,14 @@ at-least-once behavior without a fragile persisted cursor.
 
 Teak never discards a record after a timeout or attempt limit. The caller may atomically move a record
 from pending to dead letter. Requeue assigns a new sequence and retains origin information.
+
+## ADR-0013: Optional structured logging and narrow panic recovery - Accepted
+
+Applications may inject a `slog.Logger`. Teak logs storage and recovery failures with operation,
+stream, sequence, error, and panic stack when applicable; payload bytes and dead-letter reasons are
+never logged. Routine throughput is exposed through `Stats` rather than one log event per record.
+
+Teak does not blanket-recover panics in synchronous storage code because that would conceal invariant
+violations. Panics from caller-provided typed codecs are converted to `CodecPanicError`, leaving the
+delivery pending. Owned maintenance goroutines recover only at their outer boundary, log the stack,
+and stop that maintenance loop without changing queue state.

@@ -19,13 +19,53 @@ handling into logical sequence processing.
 
 ## Status
 
-Teak is in early development. The durable `internal/store` layer is complete: writes are synchronous,
-pending records and sequence tails are atomic, and commit/dead-letter operations never depend on a
-contiguous progress watermark. The bounded dispatcher implements fair retries, delivery leases,
-restart recovery, and cancellation. The public API is the next implementation milestone.
+Teak is in active development. Durable storage, bounded delivery scheduling, the public byte API, and
+the optional JSON typed wrapper are implemented. Crash-process tests, maintenance automation, release
+benchmarks, and final operational documentation remain before v0.1.0.
 
-The public `teak` API shown in the design is not implemented yet. See
-[development.md](docs/development.md) for the verified status and next milestones.
+## Quickstart
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/cocosip/teak"
+)
+
+func main() {
+    ctx := context.Background()
+    options := teak.DefaultOptions("./queue-data").WithDefaultLog(
+        teak.DefaultLogConfig().WithMaxInFlight(256),
+    )
+    factory, err := teak.New(options)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer func() { _ = factory.Close(ctx) }()
+
+    jobs, err := factory.Open(ctx, "jobs")
+    if err != nil {
+        log.Fatal(err)
+    }
+    if _, err := jobs.Write(ctx, []byte("job payload")); err != nil {
+        log.Fatal(err)
+    }
+    deliveries, err := jobs.Read(ctx, 1)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if err := jobs.Commit(ctx, deliveries...); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+Use `Retry` for recoverable processing failures and `DeadLetter` for an explicit permanent-failure
+decision. A consumer that performs external side effects should use the delivery sequence as part of
+an idempotency key before calling `Commit`.
 
 ## Documentation
 

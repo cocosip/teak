@@ -26,6 +26,11 @@ validation, persistence failures, fresh/retry fairness, retry bounds, lease expi
 in-flight backpressure, write notification, restart recovery, cancellation, source errors, and clean
 shutdown.
 
+Root-package integration tests use the public API with real Badger storage. They cover out-of-order
+commit across restart, poison-record liveness, dead-letter requeue, forged and cross-log receipts,
+concurrent producers and consumers, configuration validation, and blocked-reader shutdown. The
+`typed` package tests JSON round trips and recoverable decode failures.
+
 ## 2. Target Test Layers
 
 | Layer | Scope | Technique |

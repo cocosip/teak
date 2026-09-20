@@ -142,20 +142,25 @@ type Log interface {
     Retry(ctx context.Context, deliveries ...Delivery) error
     Extend(ctx context.Context, extension time.Duration, deliveries ...Delivery) error
     DeadLetter(ctx context.Context, delivery Delivery, reason string) error
-    Stats() Stats
+    DeadLetters(ctx context.Context, from Position, count int) ([]DeadLetter, error)
+    Requeue(ctx context.Context, deadLetter DeadLetter) (Position, error)
+    Stats() (Stats, error)
     Close(ctx context.Context) error
 }
 ```
 
 `Delivery` exposes payload, position, attempt, and deadline, but keeps its receipt opaque. The typed
 wrapper delegates lifecycle and delivery operations to the byte-level log and applies only codec work.
+Decode errors retain the raw deliveries so callers can explicitly retry or dead-letter them.
 
 ## 9. Configuration
 
 ```go
 type Options struct {
-    Dir  string
-    Logs map[string]LogConfig
+    Dir        string
+    DefaultLog LogConfig
+    Logs       map[string]LogConfig
+    Logger     *slog.Logger
 }
 
 type LogConfig struct {
@@ -176,6 +181,8 @@ Initial defaults are:
 | Retry backoff | exponential, 1 second to 1 minute |
 
 Configuration uses `time.Duration`, validates every bound, and cannot weaken synchronous durability.
+Options, log settings, and retry backoff also provide copy-returning `With...` methods for fluent
+configuration. Named-log builders clone the overrides map so derived configurations do not alias.
 
 ## 10. Lifecycle
 

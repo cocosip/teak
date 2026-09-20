@@ -91,6 +91,10 @@ delivery, commit, retry, lease-expiry, and storage-error counters.
 Errors and structured logs include the operation, stream, and sequence when available. Payload bytes
 must never be logged.
 
+Logging is opt-in through an injected `slog.Logger`. Teak recovers panics only at extension and owned
+goroutine boundaries where it can preserve queue state; it does not silently convert internal
+invariant failures into successful operations.
+
 ## 8. Acceptance Criteria
 
 v0.1 is releasable only when tests demonstrate:
