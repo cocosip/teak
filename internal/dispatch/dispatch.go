@@ -69,6 +69,10 @@ type state uint8
 
 const receiptCollisionLimit = 16
 
+// farFuture is the expire-watermark sentinel used while no delivery is in
+// flight. It is only ever compared with Before and After.
+var farFuture = time.Unix(1<<62, 0)
+
 const (
 	stateFresh state = iota + 1
 	stateRetry
@@ -107,6 +111,10 @@ type Dispatcher struct {
 	preferRetry bool
 	signal      chan struct{}
 	stats       Stats
+	// expireAt is a lower bound on the earliest in-flight deadline. Deadlines
+	// only move later (Extend) or disappear (completion), so a now before
+	// expireAt proves no lease is due and skips the in-flight sweep.
+	expireAt time.Time
 
 	now        func() time.Time
 	newReceipt func() (Receipt, error)
@@ -414,17 +422,23 @@ func (d *Dispatcher) takeLocked(count int, now time.Time) ([]Delivery, error) {
 			previousState = stateFresh
 		}
 		deadline := now.Add(d.config.VisibilityTimeout)
+		if deadline.Before(d.expireAt) {
+			d.expireAt = deadline
+		}
 		current := flight{record: item.record, receipt: receipt, attempt: item.attempt, deadline: deadline}
 		d.inFlight[receipt] = current
 		d.states[item.record.Seq] = stateInFlight
 		selected = append(selected, selectedRecord{item: item, previousState: previousState, receipt: receipt})
+		// The payload aliases the queued record; the queue facade copies it
+		// before a delivery escapes to the caller, so no layer below the facade
+		// needs its own copy.
 		deliveries = append(deliveries, Delivery{
 			Record: store.Record{
 				Seq:          item.record.Seq,
 				CreatedAt:    item.record.CreatedAt,
 				OriginStream: item.record.OriginStream,
 				OriginSeq:    item.record.OriginSeq,
-				Payload:      append([]byte(nil), item.record.Payload...),
+				Payload:      item.record.Payload,
 			},
 			Receipt:  receipt,
 			Attempt:  item.attempt,
@@ -478,8 +492,15 @@ func (d *Dispatcher) popFreshLocked() *queuedRecord {
 }
 
 func (d *Dispatcher) expireLocked(now time.Time) {
+	if now.Before(d.expireAt) {
+		return
+	}
+	earliest := farFuture
 	for receipt, current := range d.inFlight {
 		if current.deadline.After(now) {
+			if current.deadline.Before(earliest) {
+				earliest = current.deadline
+			}
 			continue
 		}
 		delete(d.inFlight, receipt)
@@ -491,6 +512,7 @@ func (d *Dispatcher) expireLocked(now time.Time) {
 		})
 		d.stats.LeaseExpirations++
 	}
+	d.expireAt = earliest
 }
 
 func (d *Dispatcher) validateLocked(deliveries []Delivery) ([]uint64, error) {

@@ -549,9 +549,13 @@ func (s *Stream) DeadLetters(from uint64, limit int) ([]DeadRecord, error) {
 
 // Counts returns persistent queue counts and oldest pending metadata.
 func (s *Stream) Counts() (Counts, error) {
+	// Snapshot the tail under the lock, then count prefixes without serializing
+	// against appends: Stats must never block a durable write, and a tail that
+	// briefly lags a concurrent append is acceptable for advisory statistics.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	counts := Counts{Tail: s.tail}
+	tail := s.tail
+	s.mu.Unlock()
+	counts := Counts{Tail: tail}
 	err := s.db.View(func(txn *badger.Txn) error {
 		for _, target := range []struct {
 			prefix []byte
@@ -560,8 +564,11 @@ func (s *Stream) Counts() (Counts, error) {
 			{pendingPrefix(s.name), &counts.Pending},
 			{deadPrefix(s.name), &counts.DeadLetter},
 		} {
+			// Keys only: the count itself never needs the value, and value
+			// prefetch would load every pending payload. The oldest pending
+			// value is fetched on demand below.
 			options := badger.DefaultIteratorOptions
-			options.PrefetchValues = target.count == &counts.Pending
+			options.PrefetchValues = false
 			iterator := txn.NewIterator(options)
 			for iterator.Seek(target.prefix); iterator.ValidForPrefix(target.prefix); iterator.Next() {
 				*target.count++

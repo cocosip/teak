@@ -55,6 +55,9 @@ func encodePending(value pendingEnvelope) ([]byte, error) {
 	return out, nil
 }
 
+// decodePending decodes one pending envelope. The returned payload aliases
+// data, so callers must pass a buffer they exclusively own, such as an
+// Item.ValueCopy result.
 func decodePending(data []byte) (pendingEnvelope, error) {
 	if len(data) == 0 {
 		return pendingEnvelope{}, ErrCorruptEnvelope
@@ -105,6 +108,9 @@ func encodeDead(value deadEnvelope) ([]byte, error) {
 	return out, nil
 }
 
+// decodeDead decodes one dead-letter envelope. The returned payload aliases
+// data, so callers must pass a buffer they exclusively own, such as an
+// Item.ValueCopy result.
 func decodeDead(data []byte) (deadEnvelope, error) {
 	if len(data) == 0 {
 		return deadEnvelope{}, ErrCorruptEnvelope
@@ -179,8 +185,7 @@ func (r *envelopeReader) bytes64() ([]byte, bool) {
 	if !ok || size > uint64(len(r.data)) {
 		return nil, false
 	}
-	value := make([]byte, int(size))
-	copy(value, r.data[:size])
+	value := r.data[:size]
 	r.data = r.data[size:]
 	return value, true
 }
