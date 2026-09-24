@@ -1,6 +1,6 @@
 # Development Status
 
-Last reviewed against the repository on 2026-09-20 for the v0.1.0 release candidate.
+Last reviewed against the repository on 2026-09-24 after the full-code walkthrough pass.
 
 This document records implemented behavior, known redesign work, and the order of development. A
 checked item means the behavior exists in code and has relevant tests; design approval alone does not
@@ -19,6 +19,7 @@ count as implementation.
 | Public byte API | Complete | root `Factory`, `Log`, delivery, options, errors, and stats |
 | Typed JSON wrapper | Complete | generic `typed.Log` and JSON codec |
 | Crash and liveness hardening | Complete | killed-process boundaries, receipt rollback, stress, GC, panic, and CI gates |
+| Benchmark coverage | Complete | root scenarios, typed wrapper, envelope coding, and scheduler micro-benchmarks |
 
 The complete build, vet, test, race, lint, crash-recovery, and benchmark gates pass on the Windows
 review machine. Linux build, lint, and race execution remains a CI responsibility because no local
@@ -110,6 +111,46 @@ passes build, vet, lint, tests, and race tests.
 
 Version-control tagging and publishing are repository-owner release actions. The development workflow
 does not create a release tag.
+
+### M6: 2026-09-24 code walkthrough
+
+A full walkthrough of `store`, `dispatch`, the facade, `typed`, and `options` found no durability or
+correctness defects. It found four hot-path costs, which are fixed with before/after evidence in
+[benchmarks.md](benchmarks.md):
+
+- [x] `Counts` counted pending keys with Badger's default value prefetch enabled, loading every
+  pending payload while only the oldest value is needed; it now counts keys only.
+- [x] `Counts` held the stream lock across its whole read transaction, so `Stats` serialized with
+  durable appends; it now snapshots the tail under the lock and scans without it.
+- [x] `expireLocked` swept the entire in-flight table on every read, commit, retry, extend, and
+  snapshot; it now keeps a lower-bound watermark of the earliest deadline and skips the sweep while
+  no lease can be due.
+- [x] Each delivered payload was copied three times (envelope decode, scheduler take, facade wrap);
+  the decode now aliases the caller-owned buffer and the scheduler hands the queued payload to the
+  facade, which remains the single copy boundary toward callers.
+- [x] Expand benchmark coverage to payload sizes, batched consuming, retry churn, `Stats` polling,
+  the typed wrapper, envelope coding, and scheduler occupancy.
+
+Verification on the walkthrough machine: build, vet, the full non-race suite, and the pinned lint
+gate pass. The race gate is environment-blocked there: `go run -race` of a hello-world program
+exits with `0xc0000139`, so race verification remains a CI responsibility on this host.
+
+### Walkthrough observations kept as-is
+
+These behaviors were reviewed and deliberately left unchanged:
+
+- `popFreshLocked` moves the fresh slice per pop, which is bounded by `PrefetchCapacity` and costs
+  microseconds at the default 1,024; a deque would complicate the scheduler for no measured need.
+- `nextWakeLocked` scans the in-flight table, but only on the blocked-reader path, not per
+  operation.
+- `Log.Stats` reads durable counts and process-local dispatcher state in two snapshots, so the
+  combination is advisory rather than mutually atomic.
+- `Factory.RunMaintenance` holds the factory lock for the duration of a value-log GC pass,
+  deliberately serializing `Open` and `Close` with GC rather than closing Badger under a live GC.
+- `Stream.load` writes the schema-version key inside its open transaction, so the first open of a
+  log performs one write.
+- `AppendBatch` returns records with copied payloads even though the facade uses only their
+  sequences; the copy keeps the returned `Record` self-contained for internal callers.
 
 ## 5. Progress Rules
 

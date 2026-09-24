@@ -47,7 +47,7 @@ tests prove that GC errors and recovered worker panics are observable without al
 | End to end | concurrent writers/readers, out-of-order completion, restart recovery | public API plus real Badger |
 | Crash recovery | interruption at transaction and lifecycle boundaries | killed subprocess and failure injection |
 | Stress and race | queue saturation, slow consumers, repeated retry, concurrent close | `go test -race` |
-| Benchmarks | durable writes, batches, streams, fan-out, deletion and GC | `go test -bench`, `b.ReportAllocs` |
+| Benchmarks | durable writes across payload sizes, batches, streams, fan-out, batched consuming, retry churn, `Stats` polling, typed codec, envelope coding, scheduler occupancy | `go test -bench`, `b.ReportAllocs` |
 
 ## 3. Required Safety Scenarios
 

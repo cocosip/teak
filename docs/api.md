@@ -89,6 +89,6 @@ returned unchanged.
 `Log.Stats` returns persistent pending/dead-letter counts and tail, process-local ready/retry/in-flight
 counts, oldest pending age, operation counters, backpressure, and storage errors. `Factory.Stats`
 returns value-log GC and maintenance-panic counters. Statistics are snapshots and are not a transaction
-with concurrent producer or consumer operations. Counts scan the durable prefixes and reap expired
-leases before reporting, so polling `Stats` on very large queues costs one iteration over pending and
-dead-letter keys per call.
+with concurrent producer or consumer operations. Counts iterate the durable prefixes as keys only and
+fetch just the oldest pending value, so polling `Stats` on very large queues costs one key iteration
+over pending and dead-letter records per call and never blocks a concurrent append.

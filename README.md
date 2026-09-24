@@ -317,26 +317,34 @@ stream. Do not copy an open Badger directory as a backup.
 
 ## Benchmarks
 
-The repository includes five benchmarks in `benchmark_test.go`:
+The repository includes scenario benchmarks in `benchmark_test.go` (durable writes across payload
+sizes, atomic batches, concurrent streams, delivery fan-out, out-of-order commits, batched
+consuming, retry churn, and `Stats` polling), typed-wrapper benchmarks in `typed`, and internal
+micro-benchmarks for envelope coding and the delivery scheduler:
 
 ```text
-go test -count=1 -run '^$' -bench . -benchmem -benchtime=10x .
+go test -count=1 -run '^$' -bench . -benchmem -benchtime=10x ./...
 ```
 
-Current short baseline, measured on 2026-09-20 with Windows amd64, Intel Core Ultra 9 185H,
-Go 1.27.1, and Badger v4.9.6:
+Current short baseline for the root-package scenarios, measured on 2026-09-24 with Windows amd64,
+Intel Core i5-9400, Go 1.27.1, and Badger v4.9.6:
 
 | Benchmark | Operation | ns/op | B/op | allocs/op |
 |---|---|---:|---:|---:|
-| `DurableWrite` | One synchronous durable write | 16,180 | 1,988 | 52 |
-| `AtomicBatchWrite100` | One atomic batch of 100 records | 91,330 | 66,257 | 1,658 |
-| `ConcurrentStreams` | One synchronous write across eight streams | 10,960 | 3,182 | 61 |
-| `DeliveryFanOut` | One concurrent read and commit | 25,900 | 86,352 | 87 |
-| `OutOfOrderCommit32` | Write, read, and reverse-order commit of 32 records | 127,330 | 179,442 | 1,636 |
+| `DurableWrite` | One synchronous durable write | 21,300 | 2,037 | 53 |
+| `DurableWriteSizes/Payload=4096B` | One durable write of a 4 KiB payload | 18,080 | 11,343 | 53 |
+| `AtomicBatchWrite100` | One atomic batch of 100 records | 171,200 | 66,350 | 1,658 |
+| `ConcurrentStreams` | One synchronous write across eight streams | 6,580 | 2,195 | 57 |
+| `DeliveryFanOut` | One concurrent read and commit | 25,910 | 11,831 | 60 |
+| `OutOfOrderCommit32` | Write, read, and reverse-order commit of 32 records | 197,180 | 179,725 | 1,576 |
+| `ConsumeBatch100` | One read and commit of a 100-record batch | 7,530 | 10,747 | 36 |
+| `RetryCycle` | One read and scheduled retry (no storage write) | 469,080 | 9,810 | 17 |
+| `Stats` | One stats read over a 10,000-record backlog | 1,073,910 | 1,451 | 29 |
 
 This `10x` run is a smoke baseline, not a throughput SLA. `SyncWrites=true` is enabled. Compare results
 only on the same host, filesystem, power policy, Go version, Badger version, payload size, and benchmark
-duration. See [docs/benchmarks.md](docs/benchmarks.md) for the maintained baseline notes.
+duration. See [docs/benchmarks.md](docs/benchmarks.md) for the maintained baseline notes, the typed
+and internal micro-benchmarks, and the measured effects of the 2026-09-24 hot-path fixes.
 
 ## Verification
 

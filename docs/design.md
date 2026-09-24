@@ -110,7 +110,9 @@ pending -> in flight -> committed
 ```
 
 `Extend` changes only a valid in-memory lease. Limits apply backpressure; they never alter persistent
-state.
+state. Lease expiry keeps a lower-bound watermark of the earliest in-flight deadline: an operation
+whose time is before the watermark skips the in-flight sweep entirely, so the common case costs one
+comparison instead of a scan proportional to `MaxInFlight`.
 
 ## 6. Commit, Retry, and Dead Letter
 
@@ -240,6 +242,7 @@ GC, but GC failures affect disk usage only and never change queue state.
 
 Stats include durable tail, pending, ready, in-flight, retry, and dead-letter counts; operation
 counters; lease expirations; duplicate deliveries; oldest pending age and sequence; backpressure; and
-storage errors. Counts scan the durable prefixes and reap expired leases before reporting, so polling
-`Stats` costs one iteration over pending and dead-letter keys per call. Logs include operation,
-stream, and sequence but never payload data.
+storage errors. Counts iterate the durable prefixes as keys only, fetch the oldest pending value on
+demand, and reap expired leases before reporting, so polling `Stats` costs one key iteration over
+pending and dead-letter records per call and never blocks a concurrent append. Logs include
+operation, stream, and sequence but never payload data.
