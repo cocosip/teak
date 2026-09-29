@@ -16,6 +16,10 @@ const (
 	tailMetaKey       = "tail"
 	schemaMetaKey     = "schema"
 	maxBatchValueSize = 32 << 20
+	// deadLettersPrealloc caps the upfront DeadLetters page allocation: the
+	// requested count is caller-controlled, while the scan result is bounded
+	// by the stored data rather than by the request.
+	deadLettersPrealloc = 1024
 )
 
 var (
@@ -375,7 +379,7 @@ func (s *Stream) Commit(seqs []uint64) error {
 	if len(seqs) == 0 {
 		return nil
 	}
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		for _, seq := range seqs {
 			if _, err := txn.Get(pendingKey(s.name, seq)); errors.Is(err, badger.ErrKeyNotFound) {
 				return fmt.Errorf("%w: %s/%d", ErrNotFound, s.name, seq)
@@ -391,6 +395,10 @@ func (s *Stream) Commit(seqs []uint64) error {
 		}
 		return nil
 	})
+	if errors.Is(err, badger.ErrTxnTooBig) {
+		return fmt.Errorf("%w: %v", ErrBatchTooLarge, err)
+	}
+	return err
 }
 
 // DeadLetter atomically replaces one pending record with a dead-letter record.
@@ -514,7 +522,7 @@ func (s *Stream) DeadLetters(from uint64, limit int) ([]DeadRecord, error) {
 	if limit <= 0 {
 		return nil, ErrInvalidBatchSize
 	}
-	records := make([]DeadRecord, 0, limit)
+	records := make([]DeadRecord, 0, min(limit, deadLettersPrealloc))
 	prefix := deadPrefix(s.name)
 	err := s.db.View(func(txn *badger.Txn) error {
 		iterator := txn.NewIterator(badger.DefaultIteratorOptions)

@@ -188,6 +188,30 @@ func TestBadgerTransactionLimitMapsToBatchTooLarge(t *testing.T) {
 	}
 }
 
+func TestCommitTransactionLimitMapsToBatchTooLarge(t *testing.T) {
+	_, stream := openTestStream(t, "jobs")
+	if _, err := stream.Append([]byte("one"), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	stream.beforeCommit = func(operation string) error {
+		if operation == "commit" {
+			return badger.ErrTxnTooBig
+		}
+		return nil
+	}
+	if err := stream.Commit([]uint64{1}); !errors.Is(err, ErrBatchTooLarge) {
+		t.Fatalf("transaction-limit commit error = %v, want ErrBatchTooLarge", err)
+	}
+	stream.beforeCommit = nil
+	counts, err := stream.Counts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Pending != 1 || counts.Tail != 1 {
+		t.Fatalf("failed commit changed storage: %+v", counts)
+	}
+}
+
 func TestConcurrentAppendIsContiguous(t *testing.T) {
 	_, stream := openTestStream(t, "jobs")
 	const workers = 8
@@ -437,6 +461,25 @@ func TestCounts(t *testing.T) {
 	}
 	if counts.Tail != 2 || counts.Pending != 1 || counts.DeadLetter != 1 || counts.OldestSeq != 1 || !counts.OldestTime.Equal(now) {
 		t.Fatalf("counts = %+v", counts)
+	}
+}
+
+func TestDeadLettersHugeCountReturnsStoredRecords(t *testing.T) {
+	_, stream := openTestStream(t, "jobs")
+	if _, err := stream.Append([]byte("one"), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.DeadLetter(1, "boom", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// A count far beyond the stored data must not attempt an allocation
+	// proportional to the request.
+	records, err := stream.DeadLetters(0, 1<<45)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Seq != 1 || records[0].Reason != "boom" {
+		t.Fatalf("dead letters page for huge count: %+v, %v", records, err)
 	}
 }
 
