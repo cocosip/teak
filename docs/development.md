@@ -1,6 +1,6 @@
 # Development Status
 
-Last reviewed against the repository on 2026-09-24 after the full-code walkthrough pass.
+Last reviewed against the repository on 2026-09-29 after the full-code walkthrough pass.
 
 This document records implemented behavior, known redesign work, and the order of development. A
 checked item means the behavior exists in code and has relevant tests; design approval alone does not
@@ -132,8 +132,8 @@ correctness defects. It found four hot-path costs, which are fixed with before/a
   the typed wrapper, envelope coding, and scheduler occupancy.
 
 Verification on the walkthrough machine: build, vet, the full non-race suite, and the pinned lint
-gate pass. The race gate is environment-blocked there: `go run -race` of a hello-world program
-exits with `0xc0000139`, so race verification remains a CI responsibility on this host.
+gate pass. The race gate failed there at the time (`go run -race` of a hello-world program exited
+with `0xc0000139`); it runs cleanly as of the 2026-09-29 walkthrough (M7).
 
 ### Walkthrough observations kept as-is
 
@@ -151,6 +151,22 @@ These behaviors were reviewed and deliberately left unchanged:
   log performs one write.
 - `AppendBatch` returns records with copied payloads even though the facade uses only their
   sequences; the copy keeps the returned `Record` self-contained for internal callers.
+
+### M7: 2026-09-29 code walkthrough fixes
+
+A re-run of the full-code walkthrough found no durability or correctness defects and fixed two
+robustness gaps:
+
+- [x] `DeadLetters` caps its upfront page allocation. The requested count is caller-controlled, so an
+  extreme value must not attempt an allocation proportional to the request before the bounded scan
+  knows how many records exist.
+- [x] `Commit` maps `badger.ErrTxnTooBig` to `ErrBatchTooLarge` the same way `AppendBatch` does, so an
+  oversized commit batch surfaces the public sentinel instead of a raw Badger error.
+- [x] Documented that `Factory.Close` and `Log.Close` check the context at entry and then wait for
+  in-flight operations, and corrected the stale M6 race-gate note above.
+
+Verification: build, vet, the full suite, the race suite, and the pinned lint gate pass on the Windows
+review machine.
 
 ## 5. Progress Rules
 

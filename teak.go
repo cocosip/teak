@@ -100,6 +100,9 @@ type Factory interface {
 	Open(ctx context.Context, name string) (Log, error)
 	RunMaintenance(ctx context.Context) error
 	Stats() FactoryStats
+	// Close stops maintenance, closes every opened log, and closes storage.
+	// The context is checked before closing starts; the close itself waits for
+	// in-flight log operations and running maintenance to finish.
 	Close(ctx context.Context) error
 }
 
@@ -116,5 +119,8 @@ type Log interface {
 	DeadLetters(ctx context.Context, from Position, count int) ([]DeadLetter, error)
 	Requeue(ctx context.Context, deadLetter DeadLetter) (Position, error)
 	Stats() (Stats, error)
+	// Close permanently closes this log for the factory lifetime. The context
+	// is checked before closing starts; the close itself waits for in-flight
+	// operations to finish.
 	Close(ctx context.Context) error
 }

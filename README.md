@@ -141,7 +141,7 @@ One `Factory` owns a Badger database and caches named logs:
 | `Open(ctx, name)` | Open or return the cached competing-consumer log |
 | `RunMaintenance(ctx)` | Run one value-log GC attempt |
 | `Stats()` | Read maintenance counters |
-| `Close(ctx)` | Stop maintenance, close logs, and close Badger |
+| `Close(ctx)` | Stop maintenance, close logs, wait for active operations, and close Badger |
 
 A `Log` is one named durable queue:
 
@@ -158,11 +158,11 @@ A `Log` is one named durable queue:
 | `DeadLetters(ctx, from, count)` | Read an ordered dead-letter page |
 | `Requeue(ctx, deadLetter)` | Atomically restore a dead letter under a new sequence |
 | `Stats()` | Read durable and process-local queue statistics |
-| `Close(ctx)` | Permanently close this named handle for the factory lifetime |
+| `Close(ctx)` | Permanently close this named handle, waiting for active operations |
 
 Log names must match `[A-Za-z0-9._-]{1,100}`. `BatchWrite` is all-or-nothing and Teak never splits it
 silently. The combined payload limit is 32 MiB, while Badger may reject a smaller batch if encoded
-transaction overhead reaches its internal limit.
+transaction overhead reaches its internal limit; `Commit` reports the same `ErrBatchTooLarge` sentinel.
 
 `Position.Seq` is monotonic within a log. `Delivery` also exposes copied payload bytes, attempt,
 deadline, and optional requeue origin. Delivery receipts and dead-letter identities are opaque and

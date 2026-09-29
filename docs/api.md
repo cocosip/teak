@@ -7,7 +7,9 @@ contracts.
 
 Create one `Factory` per Badger directory and share it across the process. `New` opens and locks the
 directory. `Factory.Open` caches a named competing-consumer log. `Factory.Close` stops maintenance,
-closes logs, waits for active operations, and then closes Badger.
+closes logs, waits for active operations, and then closes Badger. The context of `Factory.Close` and
+`Log.Close` is checked before closing starts; the close itself then waits for in-flight operations and
+cannot be cancelled midway.
 
 Closing a `Log` is terminal for that named handle within its factory. A later `Factory.Open` for the
 same name returns the same closed handle and its operations return `ErrClosed`. Create a new factory
@@ -52,7 +54,8 @@ operation starts. Once a transaction has started, the call waits for a definitiv
 fewer than the requested count. A `Delivery` contains copied payload bytes, sequence, attempt, deadline,
 and optional requeue origin. Its receipt is deliberately opaque.
 
-- `Commit` durably deletes only the delivered pending keys.
+- `Commit` durably deletes only the delivered pending keys. A commit batch whose transaction exceeds
+  the storage limit fails atomically with `ErrBatchTooLarge`.
 - `Retry` retains pending keys and schedules delayed redelivery in memory.
 - `Extend` adds time to valid delivery leases.
 - `DeadLetter` atomically replaces a pending key with a dead-letter key.
