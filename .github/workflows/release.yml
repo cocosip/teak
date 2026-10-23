@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Run tests
+        run: go test -race -count=1 -timeout 10m ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Generate changelog
+        shell: bash
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          CURR_TAG=${GITHUB_REF#refs/tags/}
+          {
+            echo "## What's Changed"
+            echo
+            git log "${PREV_TAG}..HEAD" --pretty=tformat:"- %s" --no-merges
+            echo
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${CURR_TAG}"
+          } > CHANGELOG_BODY.md
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          body_path: CHANGELOG_BODY.md
+          draft: false
+          prerelease: false

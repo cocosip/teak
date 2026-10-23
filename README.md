@@ -356,7 +356,10 @@ go test -race -timeout 10m ./...
 go run -mod=readonly github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run ./...
 ```
 
-CI runs the build, vet, pinned lint, and race-enabled test gates on Windows and Linux.
+CI runs build, vet, formatting and module-tidiness checks, pinned lint (golangci-lint v2.14.0), and
+race-enabled tests with coverage on Windows and Linux. Actionlint validates the workflows, CodeQL
+scans weekly, dependabot keeps actions and Go dependencies current, and pushing a `v*` tag opens a
+GitHub release with generated notes.
 
 ## Documentation
 

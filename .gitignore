@@ -41,3 +41,5 @@ Thumbs.db
 docs/superpowers/
 .superpowers/
 .kilo/
+# CI benchmark artifact
+benchmark-results.txt

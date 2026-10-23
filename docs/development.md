@@ -12,7 +12,7 @@ count as implementation.
 |---|---|---|
 | Module and dependency baseline | Complete | `go.mod`: Go 1.26 and Badger v4.9.6 |
 | License | Complete | MIT `LICENSE` |
-| Linux and Windows CI | Complete | build, vet, and race-enabled tests in `.github/workflows/ci.yml` |
+| Linux and Windows CI | Complete | build, vet, race tests with coverage, formatting, module tidiness, actionlint, and pinned lint in `.github/workflows/ci.yml`; CodeQL scanning; tag-triggered releases; dependabot |
 | golangci-lint rule set | Complete | `.golangci.yml` aligned with the `go-dicom` baseline |
 | Durable pending-record store | Complete | `internal/store` and storage integration tests |
 | Delivery dispatcher and leases | Complete | bounded `internal/dispatch` scheduler and fake-time tests |
@@ -184,6 +184,24 @@ correctness defects in the core paths and fixed three secondary findings:
 
 Verification: build, vet, the full suite, the race suite, and the pinned lint gate pass on the Windows
 review machine.
+
+### M9: 2026-10-23 CI/CD standardization
+
+The single-job CI workflow was rebuilt following the `go-oceanbase` reference layout:
+
+- [x] CI gained least-privilege `permissions`, superseded-run cancellation through `concurrency`,
+  per-job timeouts, named matrix jobs, dependency download/verify steps, and a pinned `1.26.x`
+  toolchain with `GOTOOLCHAIN=local`.
+- [x] The lint job now uses the official `golangci-lint-action` at the pinned v2.14.0 instead of a
+  `go run` invocation, and adds gofmt, `go mod tidy -diff`, and actionlint checks on Linux.
+- [x] The test job uploads an atomic coverage profile as an artifact; a new benchmark job runs the
+  documented `10x` smoke baseline on pull requests and manual dispatch.
+- [x] New CodeQL workflow (push, pull request, weekly schedule), tag-triggered release workflow
+  that re-runs the race suite and opens GitHub releases with generated notes, and weekly dependabot
+  updates for actions and Go modules.
+
+Verification: actionlint passes on all three workflows; gofmt and `go mod tidy -diff` are clean on
+the committed LF content; build, vet, lint, and the race suite pass on the Windows review machine.
 
 ## 5. Progress Rules
 

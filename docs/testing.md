@@ -83,7 +83,7 @@ explicit synchronization.
 
 ## 6. CI Gates
 
-The release gate is:
+The local release gate is:
 
 ```text
 go build ./...
@@ -93,6 +93,14 @@ go test ./...
 go test -race -timeout 10m ./...
 ```
 
-The workflow runs build, vet, pinned golangci-lint v2.13.1, and race-enabled tests on Windows and
-Linux. The complete gate is verified locally on Windows; Linux execution is performed by CI because
+CI (`.github/workflows/ci.yml`) runs on Windows and Linux with pinned `1.26.x` toolchains and
+`GOTOOLCHAIN=local`. The `test` job runs build, vet, and the race-enabled suite with an atomic
+coverage profile uploaded as an artifact. The `lint` job runs golangci-lint v2.14.0 through the
+pinned action on both platforms and, on Linux, additionally enforces gofmt, `go mod tidy -diff`,
+and actionlint over the workflow files. The `benchmark` job runs the `10x` smoke baseline on pull
+requests and manual dispatch. CodeQL analyzes the module on every push and pull request and on a
+weekly schedule. Pushing a `v*` tag runs the release workflow, which re-runs the race suite before
+opening a GitHub release with generated notes.
+
+The complete gate is verified locally on Windows; Linux execution is performed by CI because
 the primary development host has no Linux runtime.
