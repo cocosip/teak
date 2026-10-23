@@ -334,12 +334,15 @@ func TestDeadLetterAndRequeueAreAtomic(t *testing.T) {
 	if err != nil || len(dead) != 1 || dead[0].OriginStream != streamName || dead[0].OriginSeq != 1 || dead[0].Reason != "bad" {
 		t.Fatalf("dead letter: %+v, %v", dead, err)
 	}
-	requeued, err := stream.Requeue(1, now.Add(2*time.Second))
+	requeued, err := stream.Requeue(1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if requeued.Seq != 2 || requeued.OriginStream != streamName || requeued.OriginSeq != 1 {
 		t.Fatalf("requeued record = %+v", requeued)
+	}
+	if !requeued.CreatedAt.Equal(now) {
+		t.Fatalf("requeued record lost original creation time: %v, want %v", requeued.CreatedAt, now)
 	}
 	if dead, _ = stream.DeadLetters(1, 10); len(dead) != 0 {
 		t.Fatalf("dead record remains after requeue: %+v", dead)

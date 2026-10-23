@@ -454,8 +454,10 @@ func (s *Stream) DeadLetter(seq uint64, reason string, now time.Time) error {
 	})
 }
 
-// Requeue atomically moves a dead-letter record to a new pending sequence.
-func (s *Stream) Requeue(seq uint64, now time.Time) (Record, error) {
+// Requeue atomically moves a dead-letter record to a new pending sequence,
+// preserving its original creation time so pending age reflects true backlog
+// age across the dead-letter round trip.
+func (s *Stream) Requeue(seq uint64) (Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.tail == math.MaxUint64 {
@@ -480,7 +482,7 @@ func (s *Stream) Requeue(seq uint64, now time.Time) (Record, error) {
 			return err
 		}
 		pending := pendingEnvelope{
-			CreatedAt:    now.UTC(),
+			CreatedAt:    dead.CreatedAt,
 			OriginStream: dead.OriginStream,
 			OriginSeq:    dead.OriginSeq,
 			Payload:      dead.Payload,

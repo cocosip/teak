@@ -22,6 +22,10 @@ type factory struct {
 	closeDone chan struct{}
 	closeErr  error
 	logs      map[string]*logStream
+	// gcMu serializes value-log GC passes and guards root.Close, so storage is
+	// never closed mid-pass. The factory lock is not held during a pass: Open
+	// must not block behind storage reclamation.
+	gcMu sync.Mutex
 
 	maintenanceCancel context.CancelFunc
 	maintenanceDone   chan struct{}
@@ -132,8 +136,11 @@ func (f *factory) Close(ctx context.Context) error {
 			closeErr = err
 		}
 	}
-	if err := f.root.Close(); err != nil && closeErr == nil {
-		closeErr = fmt.Errorf("teak: close storage: %w", err)
+	f.gcMu.Lock()
+	storageErr := f.root.Close()
+	f.gcMu.Unlock()
+	if storageErr != nil && closeErr == nil {
+		closeErr = fmt.Errorf("teak: close storage: %w", storageErr)
 	}
 	f.mu.Lock()
 	f.closeErr = closeErr
@@ -147,10 +154,23 @@ func (f *factory) RunMaintenance(ctx context.Context) error {
 		return err
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if f.closed {
+		f.mu.Unlock()
 		return ErrClosed
 	}
+	f.mu.Unlock()
+
+	f.gcMu.Lock()
+	defer f.gcMu.Unlock()
+	// Re-check under the factory lock: Close may have started while this pass
+	// waited behind another one, and storage must not be collected after close.
+	f.mu.Lock()
+	closed := f.closed
+	f.mu.Unlock()
+	if closed {
+		return ErrClosed
+	}
+
 	f.gcRuns.Add(1)
 	err := f.runGC(f.options.ValueLogGCDiscardRatio)
 	switch {
@@ -187,8 +207,25 @@ func (f *factory) maintenanceLoop(ctx context.Context) {
 }
 
 func (f *factory) maintenanceWorker(ctx context.Context, ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			if !f.runMaintenanceTick(ctx) {
+				return
+			}
+		}
+	}
+}
+
+// runMaintenanceTick runs one maintenance attempt and reports whether the
+// worker should keep waiting. The panic guard is per tick: a failing pass is
+// counted and logged, and later ticks still run.
+func (f *factory) runMaintenanceTick(ctx context.Context) (keepRunning bool) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
+			keepRunning = true
 			f.maintenancePanics.Add(1)
 			if f.options.Logger != nil {
 				f.options.Logger.Error(
@@ -200,16 +237,8 @@ func (f *factory) maintenanceWorker(ctx context.Context, ticks <-chan time.Time)
 			}
 		}
 	}()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticks:
-			if err := f.RunMaintenance(ctx); errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled) {
-				return
-			}
-		}
-	}
+	err := f.RunMaintenance(ctx)
+	return !errors.Is(err, ErrClosed) && !errors.Is(err, context.Canceled)
 }
 
 func cloneLogConfigs(configs map[string]LogConfig) map[string]LogConfig {

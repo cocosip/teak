@@ -125,7 +125,7 @@ Retry state is an optimization, not the durable source of truth; the pending key
 
 `DeadLetter` reads the pending envelope, writes the dead-letter envelope, and deletes the pending key
 in one transaction. Requeue validates an opaque owner and immutable sequence identity before performing
-the inverse using a new sequence and retaining origin information.
+the inverse using a new sequence and retaining origin information and the original creation time.
 
 Completions (`Commit`, `DeadLetter`) hold the scheduler lock across their synchronous Badger
 transaction, so a slow fsync delays other completions on the same log rather than risking a duplicate
@@ -221,12 +221,14 @@ Options, log settings, and retry backoff also provide copy-returning `With...` m
 configuration. Named-log builders clone the overrides map so derived configurations do not alias.
 Setting the maintenance interval to zero disables automatic GC; callers may still invoke
 `Factory.RunMaintenance`. GC errors and recovered maintenance panics are exposed by `Factory.Stats`.
+A recovered panic guards one pass only; later passes still run.
 
 ## 10. Lifecycle
 
 `Close` rejects new operations, cancels the dispatcher, waits for its goroutines, and leaves every
 uncommitted record in Badger. A closed named log remains the factory's cached terminal handle; reopening
-the durable stream requires a new factory. The factory closes streams before closing the shared database.
+the durable stream requires a new factory. The factory closes streams and waits for any in-flight
+value-log GC pass before closing the shared database.
 
 Cancellation before a request enters the stream coordinator has no persistent effect. Once an
 accepted write or commit enters its transaction, Teak waits for a definitive result rather than

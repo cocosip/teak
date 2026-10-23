@@ -193,7 +193,7 @@ func (l *logStream) Requeue(ctx context.Context, deadLetter DeadLetter) (Positio
 	if deadLetter.owner != l || deadLetter.identitySeq != deadLetter.Position.Seq {
 		return Position{}, ErrInvalidDeadLetter
 	}
-	record, err := l.store.Requeue(deadLetter.Position.Seq, time.Now())
+	record, err := l.store.Requeue(deadLetter.Position.Seq)
 	if err != nil {
 		return Position{}, l.storageError("requeue", deadLetter.Position.Seq, mapError(err))
 	}

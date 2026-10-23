@@ -37,8 +37,9 @@ splits a batch.
 
 Alert on increasing `Pending`, `OldestPendingAge`, `Retry`, `StorageErrors`, or `ValueLogGCErrors`.
 `BackpressureEvents` indicates configured limits are constraining reads. A nonzero
-`MaintenancePanics` means automatic GC stopped and should be investigated; queue delivery remains
-correct because GC is not part of acknowledgement.
+`MaintenancePanics` means GC passes are panicking; each panic is recovered and later passes still
+run, but the underlying failure should be investigated. Queue delivery remains correct because GC is
+not part of acknowledgement.
 
 Inject a `slog.Logger` to receive storage, recovery, and maintenance failures. Teak logs operation,
 stream, sequence, error, and maintenance panic stack when available. It never logs payload bytes or

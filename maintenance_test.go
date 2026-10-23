@@ -50,7 +50,7 @@ func TestMaintenanceErrorIsLoggedAndCounted(t *testing.T) {
 	}
 }
 
-func TestMaintenanceWorkerRecoversPanicWithoutChangingQueue(t *testing.T) {
+func TestMaintenanceWorkerRecoversPanicAndRunsLaterTicks(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	factoryAPI, err := New(DefaultOptions(t.TempDir()).WithMaintenanceInterval(0).WithLogger(logger))
@@ -67,12 +67,32 @@ func TestMaintenanceWorkerRecoversPanicWithoutChangingQueue(t *testing.T) {
 	}
 
 	created := factoryAPI.(*factory)
-	created.runGC = func(float64) error { panic("maintenance panic") }
-	ticks := make(chan time.Time, 1)
-	ticks <- time.Now()
-	created.maintenanceWorker(t.Context(), ticks)
+	calls := 0
+	secondPass := make(chan struct{})
+	created.runGC = func(float64) error {
+		calls++
+		if calls == 1 {
+			panic("maintenance panic")
+		}
+		close(secondPass)
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ticks := make(chan time.Time)
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		created.maintenanceWorker(ctx, ticks)
+	}()
 
-	if stats := created.Stats(); stats.MaintenancePanics != 1 {
+	ticks <- time.Now()
+	ticks <- time.Now()
+	<-secondPass
+	cancel()
+	<-workerDone
+
+	if stats := created.Stats(); stats.MaintenancePanics != 1 || stats.ValueLogGCRuns != 2 ||
+		stats.ValueLogGCRewrites != 1 {
 		t.Fatalf("maintenance stats = %+v", stats)
 	}
 	queueStats, err := log.Stats()

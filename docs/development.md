@@ -145,8 +145,6 @@ These behaviors were reviewed and deliberately left unchanged:
   operation.
 - `Log.Stats` reads durable counts and process-local dispatcher state in two snapshots, so the
   combination is advisory rather than mutually atomic.
-- `Factory.RunMaintenance` holds the factory lock for the duration of a value-log GC pass,
-  deliberately serializing `Open` and `Close` with GC rather than closing Badger under a live GC.
 - `Stream.load` writes the schema-version key inside its open transaction, so the first open of a
   log performs one write.
 - `AppendBatch` returns records with copied payloads even though the facade uses only their
@@ -164,6 +162,25 @@ robustness gaps:
   oversized commit batch surfaces the public sentinel instead of a raw Badger error.
 - [x] Documented that `Factory.Close` and `Log.Close` check the context at entry and then wait for
   in-flight operations, and corrected the stale M6 race-gate note above.
+
+Verification: build, vet, the full suite, the race suite, and the pinned lint gate pass on the Windows
+review machine.
+
+### M8: 2026-10-23 code walkthrough fixes
+
+A third full-code walkthrough focused on data safety and concurrency found no durability or
+correctness defects in the core paths and fixed three secondary findings:
+
+- [x] The maintenance worker recovered panics around its whole loop, so a single panicking GC pass
+  permanently stopped automatic value-log GC for the factory lifetime. The panic guard is now per
+  tick: a failing pass is counted and logged, and later ticks still run.
+- [x] `RunMaintenance` no longer holds the factory lock during a value-log GC pass, so `Open` is not
+  blocked behind storage reclamation. A dedicated GC lock still serializes passes and lets `Close`
+  wait for an in-flight pass before closing Badger, preserving the no-close-under-live-GC guarantee
+  the factory-lock approach provided.
+- [x] `Requeue` preserves the original record creation time instead of stamping the requeue moment,
+  so `Stats` oldest-pending age reflects true backlog age across a dead-letter round trip. The now
+  unused requeue timestamp was removed from the internal store API.
 
 Verification: build, vet, the full suite, the race suite, and the pinned lint gate pass on the Windows
 review machine.
